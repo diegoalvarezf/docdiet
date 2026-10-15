@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { getOrConvert } from './cache.js';
 import { convertPdf } from './convert.js';
 import { runHook } from './hook.js';
-import { hookCommand, install, settingsPath, uninstall } from './install.js';
+import { hookCommand, install, settingsPath, stableNodePath, uninstall } from './install.js';
 import { estimatePdfTokens, estimateTokens, readStats } from './stats.js';
 
 const USAGE = `docdiet — PDFs as compact Markdown for AI coding agents
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     case 'install': {
       const path = settingsPath(scope);
       const cli = realpathSync(fileURLToPath(import.meta.url));
-      await install(path, hookCommand(process.execPath, cli));
+      await install(path, hookCommand(stableNodePath(), cli));
       console.log(`Hook installed in ${path}.\nClaude Code will now read PDFs as Markdown (restart open sessions).`);
       return;
     }

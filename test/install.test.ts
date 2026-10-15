@@ -25,3 +25,16 @@ describe('settings editing', () => {
     expect(withoutHook(withHook({}, command))).toEqual({});
   });
 });
+
+describe('stableNodePath', () => {
+  it('prefers the first node on PATH over the resolved binary', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { stableNodePath } = await import('../src/install.js');
+    const bin = mkdtempSync(join(tmpdir(), 'docdiet-bin-'));
+    writeFileSync(join(bin, 'node'), '');
+    expect(stableNodePath('/opt/homebrew/Cellar/node/25.9.0/bin/node', `/nonexistent:${bin}`)).toBe(join(bin, 'node'));
+    expect(stableNodePath('/fallback/node', '/nonexistent')).toBe('/fallback/node');
+  });
+});

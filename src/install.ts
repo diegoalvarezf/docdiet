@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 
 interface HookHandler {
   type: string;
@@ -18,6 +18,17 @@ type Settings = Record<string, unknown> & { hooks?: Record<string, MatcherGroup[
 
 export function settingsPath(scope: 'user' | 'project', cwd = process.cwd()): string {
   return scope === 'user' ? join(homedir(), '.claude', 'settings.json') : join(cwd, '.claude', 'settings.local.json');
+}
+
+// process.execPath is the resolved binary (e.g. Homebrew's versioned Cellar path), which disappears on
+// upgrade. Prefer the first `node` on PATH, which is usually a stable symlink.
+export function stableNodePath(execPath = process.execPath, pathEnv = process.env.PATH ?? ''): string {
+  for (const dir of pathEnv.split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, process.platform === 'win32' ? 'node.exe' : 'node');
+    if (existsSync(candidate)) return candidate;
+  }
+  return execPath;
 }
 
 export function hookCommand(nodePath: string, cliPath: string): string {
