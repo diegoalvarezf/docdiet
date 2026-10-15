@@ -6,7 +6,7 @@ import { basename, extname, join, sep } from 'node:path';
 import { convertPdf, type Conversion } from './convert.js';
 
 // Bump when the Markdown output changes, so old cache entries are not reused.
-export const CONVERTER_VERSION = 1;
+export const CONVERTER_VERSION = 2;
 
 export function docdietHome(): string {
   return process.env.DOCDIET_HOME ?? join(homedir(), '.docdiet');
@@ -55,8 +55,11 @@ export async function getOrConvert(path: string, pageSpec?: string): Promise<Cac
   await mkdir(dir, { recursive: true });
   await rm(originalLink, { force: true });
   await symlink(source, originalLink);
+  // Long documents exceed Read's token cap and arrive truncated: say up front how to jump around.
+  const lineCount = conversion.markdown.split('\n').length + 2;
   const header =
-    `<!-- docdiet: Markdown of ${source} (pages ${describePages(conversion)} of ${conversion.totalPages}). ` +
+    `<!-- docdiet: Markdown of ${source} (pages ${describePages(conversion)} of ${conversion.totalPages}, ${lineCount} lines; ` +
+    `each page starts with "<!-- page N -->", Grep for it to jump to a page). ` +
     `Images, figures and scanned pages are not included; to see the original pages, Read ${originalLink} -->\n\n`;
   const { markdown, ...rest } = conversion;
   await writeFile(markdownPath, header + markdown);
