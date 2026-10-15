@@ -1,0 +1,31 @@
+{
+  "name": "docdiet",
+  "version": "0.1.0",
+  "description": "Converts PDFs to compact Markdown before AI coding agents read them: fewer tokens, 100% local",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "docdiet": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "unpdf": "1.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "pdf-lib": "1.17.1",
+    "typescript": "^5.5.0",
+    "vitest": "^3.2.7"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
