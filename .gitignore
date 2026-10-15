@@ -3,3 +3,7 @@ dist/
 *.tgz
 .DS_Store
 .claude/settings.local.json
+ml/.venv/
+ml/data/
+ml/runs/
+__pycache__/
