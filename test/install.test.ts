@@ -38,3 +38,19 @@ describe('stableNodePath', () => {
     expect(stableNodePath('/fallback/node', '/nonexistent')).toBe('/fallback/node');
   });
 });
+
+describe('stableNodePath with Homebrew', () => {
+  it('skips versioned Cellar dirs on PATH and maps the Cellar binary to <prefix>/bin/node', async () => {
+    const { mkdirSync, mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { stableNodePath } = await import('../src/install.js');
+    const prefix = mkdtempSync(join(tmpdir(), 'docdiet-brew-'));
+    const cellarBin = join(prefix, 'Cellar', 'node', '25.9.0', 'bin');
+    mkdirSync(cellarBin, { recursive: true });
+    mkdirSync(join(prefix, 'bin'));
+    writeFileSync(join(cellarBin, 'node'), '');
+    writeFileSync(join(prefix, 'bin', 'node'), '');
+    expect(stableNodePath(join(cellarBin, 'node'), cellarBin)).toBe(join(prefix, 'bin', 'node'));
+  });
+});

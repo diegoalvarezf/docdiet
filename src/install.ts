@@ -23,11 +23,15 @@ export function settingsPath(scope: 'user' | 'project', cwd = process.cwd()): st
 // process.execPath is the resolved binary (e.g. Homebrew's versioned Cellar path), which disappears on
 // upgrade. Prefer the first `node` on PATH, which is usually a stable symlink.
 export function stableNodePath(execPath = process.execPath, pathEnv = process.env.PATH ?? ''): string {
+  const versioned = /[/\\]Cellar[/\\]/;
   for (const dir of pathEnv.split(delimiter)) {
-    if (!dir) continue;
+    if (!dir || versioned.test(dir)) continue;
     const candidate = join(dir, process.platform === 'win32' ? 'node.exe' : 'node');
     if (existsSync(candidate)) return candidate;
   }
+  // <prefix>/Cellar/node/<version>/bin/node → <prefix>/bin/node
+  const match = /^(.*)[/\\]Cellar[/\\][^/\\]+[/\\][^/\\]+[/\\]bin[/\\]node$/.exec(execPath);
+  if (match && existsSync(join(match[1], 'bin', 'node'))) return join(match[1], 'bin', 'node');
   return execPath;
 }
 
