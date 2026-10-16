@@ -153,6 +153,7 @@ describe('PDF token estimate', () => {
   it('counts text only for whole-document reads', () => {
     const conversion = { rawTextChars: 4000, pageSizes: [a4, a4] };
     expect(estimatePdfTokens(conversion, 'images')).toBe(2520);
-    expect(estimatePdfTokens(conversion, 'document')).toBe(3520);
+    // Document pages cost 22% more than the JPEGs (ceil(2520 × 1.22) = 3075), plus 4000 chars / 3.
+    expect(estimatePdfTokens(conversion, 'document')).toBe(3075 + 1334);
   });
 });

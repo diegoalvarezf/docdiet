@@ -4,7 +4,7 @@ import { getOrConvert, isInCache } from './cache.js';
 import { parsePageRange } from './convert.js';
 import { HOOK_OCR_BUDGET_MS } from './ocr.js';
 import { handlePromptSubmit, type PromptInput } from './prompt.js';
-import { estimatePdfTokens, estimateTokens, pdfReadMode, recordStat } from './stats.js';
+import { estimatePdfTokens, estimateReadTokens, estimateTokens, pdfReadMode, recordStat } from './stats.js';
 
 export interface HookInput {
   tool_name?: string;
@@ -32,8 +32,8 @@ export interface HookOutput {
 // 25,000 tokens (CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) is cut or fails when a limit is set.
 const READ_MAX_BYTES = 256 * 1024;
 const DEFAULT_READ_MAX_TOKENS = 25_000;
-// Read counts real tokens; ~3 chars per token stays on the safe side for non-English text.
-const SAFE_CHARS_PER_TOKEN = 3;
+// Read counts real tokens; German text with tables measured 2.3 chars per token, so 2 stays safe.
+const SAFE_CHARS_PER_TOKEN = 2;
 const MAX_INDEX_ENTRIES = 200;
 
 function readMaxTokens(): number {
@@ -138,7 +138,7 @@ export async function handleHookInput(input: HookInput): Promise<HookOutput | nu
     );
     const servedLines = conversion.markdown.split('\n').slice((windowOffset ?? 1) - 1);
     const served = windowLimit === undefined ? servedLines : servedLines.slice(0, windowLimit);
-    const markdownTokens = estimateTokens(served.join('\n'));
+    const markdownTokens = estimateReadTokens(served.join('\n'));
     await recordStat({
       ts: new Date().toISOString(),
       file: path,
