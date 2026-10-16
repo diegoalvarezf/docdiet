@@ -6,6 +6,8 @@ export interface TextItem {
   fontSize: number;
 }
 
+import { findTables, tableToMarkdown } from './tables.js';
+
 export interface PageInput {
   number: number;
   items: TextItem[];
@@ -15,6 +17,7 @@ export interface PageInput {
 
 const LABEL_NOTES: Record<string, string> = {
   table: 'table on this page: cell layout may be lost, check the original page if exact values matter',
+  table_rebuilt: 'table on this page rebuilt from text positions: check the original page if exact values matter',
   figure: 'figure on this page: not in the Markdown, see the original page',
   two_columns: 'two-column page: columns not separated, text order may mix them',
 };
@@ -29,6 +32,8 @@ interface Line {
   x: number;
   y: number;
   size: number;
+  // Already-rendered Markdown table standing in for several rows.
+  table?: boolean;
 }
 
 const BULLET = /^([•◦▪‣∙·●○■□–-]|\*|\d{1,3}[.)]|[a-z][.)])\s+/;
@@ -135,10 +140,29 @@ function columnRows(items: TextItem[], gutter: number): TextItem[][] {
   return ordered;
 }
 
-function buildLines(items: TextItem[], twoColumns = false): { lines: Line[]; reordered: boolean } {
+interface BuiltPage {
+  lines: Line[];
+  reordered: boolean;
+  tables: number;
+}
+
+function buildLines(items: TextItem[], twoColumns = false, hasTable = false): BuiltPage {
   const gutter = twoColumns ? findGutter(items) : undefined;
   const rows = gutter === undefined ? groupRows(items) : columnRows(items, gutter);
-  return { lines: rows.map(rowToLine).filter((l): l is Line => l !== undefined), reordered: gutter !== undefined };
+  const tables = hasTable ? findTables(rows) : [];
+  const lines: Line[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const table = tables.find((t) => t.first === i);
+    if (table) {
+      const first = rows[i][0];
+      lines.push({ text: tableToMarkdown(table.cells), x: first.x, y: first.y, size: first.fontSize, table: true });
+      i = table.last;
+      continue;
+    }
+    const line = rowToLine(rows[i]);
+    if (line) lines.push(line);
+  }
+  return { lines, reordered: gutter !== undefined, tables: tables.length };
 }
 
 function bodySize(pages: Line[][]): number {
@@ -206,7 +230,7 @@ function joinWrapped(paragraph: string, next: string): string {
 }
 
 export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
-  const built = pages.map((p) => buildLines(p.items, p.labels?.includes('two_columns')));
+  const built = pages.map((p) => buildLines(p.items, p.labels?.includes('two_columns'), p.labels?.includes('table')));
   const lines = built.map((b) => b.lines);
   const body = bodySize(lines);
   const levels = headingLevels(lines, body);
@@ -221,7 +245,8 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
     for (const label of page.labels ?? []) {
       // Columns already put in reading order need no warning.
       if (label === 'two_columns' && built[index].reordered) continue;
-      if (LABEL_NOTES[label]) out.push(`<!-- ${LABEL_NOTES[label]} -->`);
+      const note = label === 'table' && built[index].tables > 0 ? LABEL_NOTES.table_rebuilt : LABEL_NOTES[label];
+      if (note) out.push(`<!-- ${note} -->`);
     }
     if (pageLines.length === 0) {
       textlessPages.push(page.number);
@@ -242,6 +267,12 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
     };
 
     for (const line of kept) {
+      if (line.table) {
+        flush();
+        out.push(line.text, '');
+        prev = undefined;
+        continue;
+      }
       if (isHeading(line, body)) {
         flush();
         out.push(`${'#'.repeat(levels.get(Math.round(line.size)) ?? 3)} ${line.text}`, '');

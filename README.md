@@ -62,14 +62,15 @@ Restart open Claude Code sessions after installing.
 A small neural network (MobileNetV3-small fine-tuned on DocLayNet and synthetic pages, `ml/`) looks at each
 page and says whether it has a table, a figure or two columns. It ships as `models/page-classifier.onnx` and
 runs locally with `onnxruntime-node` (~20-30 ms per page, first conversion only). Two-column pages are read
-column by column; tables and figures get a note so Claude knows when to check the original page.
+column by column, tables are rebuilt as Markdown tables from text positions, and figures get a note so Claude
+knows when to check the original page.
 `DOCDIET_CLASSIFY=0` turns it off.
 
 ## Limitations
 
 - Scanned pages are skipped, not OCR'd.
-- Tables come out as plain lines and figures are dropped (the classifier flags them). Pages mixing one- and
-  two-column sections may still interleave.
+- Figures are dropped (the classifier flags them). Pages mixing one- and two-column sections may still interleave.
+- Rebuilt tables can miss multi-level headers or sub-rows; tables the classifier misses stay plain lines.
 - Headings are detected by font size only (bold body-size headings are not).
 
-Next: tables → table extraction.
+Next: scans → OCR.
