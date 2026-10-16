@@ -13,6 +13,8 @@ export interface PageInput {
   items: TextItem[];
   // From the page classifier: what the text alone does not carry well.
   labels?: string[];
+  // Set when the items came from OCR of a scanned page (mean word confidence, 0-100).
+  ocrConfidence?: number;
 }
 
 const LABEL_NOTES: Record<string, string> = {
@@ -242,6 +244,9 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
   pages.forEach((page, index) => {
     const pageLines = lines[index];
     out.push(`<!-- page ${page.number} -->`);
+    if (page.ocrConfidence !== undefined) {
+      out.push(`<!-- scanned page, text from OCR (confidence ${Math.round(page.ocrConfidence)}%): check the original page if exact wording matters -->`);
+    }
     for (const label of page.labels ?? []) {
       // Columns already put in reading order need no warning.
       if (label === 'two_columns' && built[index].reordered) continue;

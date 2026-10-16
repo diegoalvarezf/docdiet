@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { getOrConvert, isInCache } from './cache.js';
 import { parsePageRange } from './convert.js';
+import { HOOK_OCR_BUDGET_MS } from './ocr.js';
 import { handlePromptSubmit, type PromptInput } from './prompt.js';
 import { estimatePdfTokens, estimateTokens, pdfReadMode, recordStat } from './stats.js';
 
@@ -113,7 +114,7 @@ export async function handleHookInput(input: HookInput): Promise<HookOutput | nu
   try {
     // Always the whole PDF: one cache entry serves every page range, and Claude can be told
     // the rest of the document is already there instead of asking for it 20 pages at a time.
-    const { markdownPath, conversion, cached } = await getOrConvert(path);
+    const { markdownPath, conversion, cached } = await getOrConvert(path, undefined, { ocrBudgetMs: HOOK_OCR_BUDGET_MS });
     const { offset, limit, pages: pageSpec } = input.tool_input ?? {};
     const requested = parsePageRange(pageSpec, conversion.totalPages);
     const textless = requested.filter((p) => conversion.textlessPages.includes(p));

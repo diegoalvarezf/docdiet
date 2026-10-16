@@ -31,7 +31,7 @@ Token figures are **estimates**: ~4 characters per token, and page images priced
    in case Claude needs a figure.
 
 It steps aside — Claude reads the PDF as usual — when:
-- half or more of the pages have no text layer (scans): Markdown would lose most of the content;
+- half or more of the pages have no text layer even after OCR (see below): Markdown would lose most of the content;
 - the file is broken, missing, or anything goes wrong. A failed conversion never blocks a read.
 
 Files attached with `@` in a prompt never go through Read, and Claude Code sends no content for an
@@ -66,11 +66,20 @@ column by column, tables are rebuilt as Markdown tables from text positions, and
 knows when to check the original page.
 `DOCDIET_CLASSIFY=0` turns it off.
 
+## Scanned pages (OCR)
+
+If [Tesseract](https://github.com/tesseract-ocr/tesseract) is installed (`brew install tesseract tesseract-lang`),
+pages without a text layer are OCR'd at 300 DPI, in parallel, and go through the same pipeline (headings, columns,
+tables). A page is used only when Tesseract's mean word confidence is at least 70%; the Markdown says which pages
+came from OCR. Inside Claude Code hooks OCR stops after 60 s (about 100 pages); the rest stay as images.
+
+- `DOCDIET_OCR_LANGS` picks the languages (Tesseract codes, default `eng+spa`; e.g. `eng+deu+fra`).
+- `DOCDIET_OCR=0` turns OCR off. Without Tesseract, scans pass through to Claude as before.
+
 ## Limitations
 
-- Scanned pages are skipped, not OCR'd.
+- OCR quality depends on the scan and on `DOCDIET_OCR_LANGS` matching the document's language.
 - Figures are dropped (the classifier flags them). Pages mixing one- and two-column sections may still interleave.
 - Rebuilt tables can miss multi-level headers or sub-rows; tables the classifier misses stay plain lines.
 - Headings are detected by font size only (bold body-size headings are not).
 
-Next: scans → OCR.

@@ -13,6 +13,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 | `src/markdown.ts` | Pure: positioned text items → Markdown (lines, headings by font size, paragraphs, lists, de-hyphenation, running header/footer + page number removal, textless pages, column order on pages labelled two-column) |
 | `src/classify.ts` | Page classifier: renders pages to 224×320 gray (pdf.js + `@napi-rs/canvas`), runs `models/page-classifier.onnx` |
 | `src/tables.ts` | Pure: rebuilds Markdown tables from text positions (cells by wide gaps, columns from the fullest rows, wrapped cells joined) on pages labelled table |
+| `src/ocr.ts` | Optional OCR of textless pages with the system `tesseract` (TSV words → positioned items, confidence ≥ 70%, parallel, time budget in hooks) |
 | `src/convert.ts` | Reads the PDF with unpdf, page ranges (`parsePageRange`), calls `pagesToMarkdown` |
 | `src/cache.ts` | `~/.docdiet/cache` (or `$DOCDIET_HOME`), key = realpath + size + mtime + pages + `CONVERTER_VERSION`; writes `.md`, `.json` meta and a `.pdf` symlink to the original |
 | `src/hook.ts` | `handleHookInput` (pure-ish, testable) + `runHook` (stdin/stdout); `planRead` windows Markdown too big for one Read |
@@ -24,7 +25,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 ## Rules
 - The hook must never block or break a Read: any error → exit 0 with no output (Claude reads the original).
 - Paths inside the cache dir are never intercepted — that is how Claude can still open the original pages.
-- Mostly scanned PDFs (≥ half the pages without text) pass through untouched.
+- Mostly scanned PDFs (≥ half the pages still without text after OCR) pass through untouched.
 - `updatedInput` replaces the whole tool input: send `file_path` plus `offset`/`limit` (they address Markdown lines). The hook always converts the whole PDF; `pages` becomes the line window of those pages.
 - Read's `validateInput` runs on the original input *before* PreToolUse hooks; `@` attachments never reach Read hooks (covered by `UserPromptSubmit`). additionalContext over 10,000 chars is persisted to disk and only previewed.
 - Bump `CONVERTER_VERSION` whenever Markdown output or cached metadata changes.
@@ -45,5 +46,6 @@ pnpm test
   (real test: table 88%, figure 86%, two_columns 98% accuracy), exported with `ml/export.py` to
   `models/page-classifier.onnx` (preprocessing + sigmoid inside the graph; Node matches Python on 100% of labels).
   Routing: two-column pages get column-aware reading order (`findGutter` + `columnRows` in `markdown.ts`);
-  table pages get Markdown tables rebuilt from text positions (`tables.ts`); figures only get a note.
-  Next: scans → OCR. Ask before downloading datasets.
+  table pages get Markdown tables rebuilt from text positions (`tables.ts`); figures only get a note;
+  textless pages get Tesseract OCR (`ocr.ts`, 97% word match on rasterized DocLayNet pages with the right
+  languages). Ask before downloading datasets.

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { getOrConvert, isInCache } from './cache.js';
+import { HOOK_OCR_BUDGET_MS } from './ocr.js';
 import { estimateTokens } from './stats.js';
 
 export interface PromptInput {
@@ -46,7 +47,7 @@ export async function handlePromptSubmit(input: PromptInput): Promise<PromptOutp
     const path = resolveMention(mention, cwd);
     if (isInCache(path) || !existsSync(path)) continue;
     try {
-      const { markdownPath, originalLink, conversion } = await getOrConvert(path);
+      const { markdownPath, originalLink, conversion } = await getOrConvert(path, undefined, { ocrBudgetMs: HOOK_OCR_BUDGET_MS });
       const { totalPages, textlessPages, markdown } = conversion;
       if (textlessPages.length * 2 >= totalPages) {
         notes.push({ pointer: `@${mention} is mostly scanned pages: Read ${originalLink} with pages to see them.` });

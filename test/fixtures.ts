@@ -88,3 +88,15 @@ export async function layoutPdf(): Promise<Uint8Array> {
   column(doc.addPage([595, 842]), 50, 495, 780, 60);
   return doc.save();
 }
+
+// samplePdf's first page as an image-only page, like a scan.
+export async function scannedTextPdf(): Promise<Uint8Array> {
+  const { getDocumentProxy, renderPageAsImage } = await import('unpdf');
+  const pdf = await getDocumentProxy(await samplePdf());
+  const png = await renderPageAsImage(pdf, 1, { canvasImport: () => import('@napi-rs/canvas'), scale: 200 / 72 });
+  await pdf.loadingTask.destroy();
+  const doc = await PDFDocument.create();
+  const image = await doc.embedPng(new Uint8Array(png));
+  doc.addPage([595, 842]).drawImage(image, { x: 0, y: 0, width: 595, height: 842 });
+  return doc.save();
+}

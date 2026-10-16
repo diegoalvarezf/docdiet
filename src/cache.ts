@@ -3,10 +3,10 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, extname, join, sep } from 'node:path';
-import { convertPdf, type Conversion } from './convert.js';
+import { convertPdf, type Conversion, type ConvertOptions } from './convert.js';
 
 // Bump when the Markdown output or the cached metadata changes, so old cache entries are not reused.
-export const CONVERTER_VERSION = 6;
+export const CONVERTER_VERSION = 7;
 
 export function docdietHome(): string {
   return process.env.DOCDIET_HOME ?? join(homedir(), '.docdiet');
@@ -31,7 +31,7 @@ interface Meta extends Omit<Conversion, 'markdown'> {
   source: string;
 }
 
-export async function getOrConvert(path: string, pageSpec?: string): Promise<CachedConversion> {
+export async function getOrConvert(path: string, pageSpec?: string, options?: ConvertOptions): Promise<CachedConversion> {
   const source = await realpath(path);
   const info = await stat(source);
   const key = createHash('sha256')
@@ -51,7 +51,7 @@ export async function getOrConvert(path: string, pageSpec?: string): Promise<Cac
     return { markdownPath, originalLink, conversion: { ...meta, markdown }, cached: true };
   }
 
-  const conversion = await convertPdf(source, pageSpec);
+  const conversion = await convertPdf(source, pageSpec, options);
   await mkdir(dir, { recursive: true });
   await rm(originalLink, { force: true });
   await symlink(source, originalLink);
@@ -60,7 +60,7 @@ export async function getOrConvert(path: string, pageSpec?: string): Promise<Cac
   const header =
     `<!-- docdiet: Markdown of ${source} (pages ${describePages(conversion)} of ${conversion.totalPages}, ${lineCount} lines; ` +
     `each page starts with "<!-- page N -->", Grep for it to jump to a page). ` +
-    `Images, figures and scanned pages are not included; to see the original pages, Read ${originalLink} -->\n\n`;
+    `Images and figures are not included and scanned pages are OCR'd when possible; to see the original pages, Read ${originalLink} -->\n\n`;
   const { markdown, ...rest } = conversion;
   await writeFile(markdownPath, header + markdown);
   await writeFile(metaPath, JSON.stringify({ ...rest, source } satisfies Meta));

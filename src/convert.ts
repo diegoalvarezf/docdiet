@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { extractTextItems, getDocumentProxy } from 'unpdf';
 import { labelsOf, pageProbabilities, type PageLabel } from './classify.js';
 import { pagesToMarkdown, type PageInput } from './markdown.js';
+import { ocrPages } from './ocr.js';
 
 export interface Conversion {
   markdown: string;
@@ -12,6 +13,13 @@ export interface Conversion {
   pageSizes: PageSize[];
   // Classifier labels for pages that have any; empty when classification is off or failed.
   pageLabels: Record<number, PageLabel[]>;
+  // Pages without a text layer whose text came from OCR.
+  ocrPages: number[];
+}
+
+export interface ConvertOptions {
+  // Time OCR may spend on scanned pages; pages not reached stay without text. Unlimited by default.
+  ocrBudgetMs?: number;
 }
 
 // In PDF points (1/72 inch), rotation applied: the size pdftoppm renders.
@@ -34,18 +42,22 @@ export function parsePageRange(spec: string | undefined, totalPages: number): nu
   return [...pages].sort((a, b) => a - b);
 }
 
-export async function convertPdf(path: string, pageSpec?: string): Promise<Conversion> {
+export async function convertPdf(path: string, pageSpec?: string, options: ConvertOptions = {}): Promise<Conversion> {
   const pdf = await getDocumentProxy(new Uint8Array(await readFile(path)));
   try {
     const { totalPages, items } = await extractTextItems(pdf);
     const convertedPages = parsePageRange(pageSpec, totalPages);
-    const pageLabels = await classify(pdf, convertedPages.filter((n) => (items[n - 1] ?? []).length > 0));
+    const hasText = (n: number) => (items[n - 1] ?? []).some((i) => i.str.trim());
+    // Only the real text layer counts here: it is what the API extracts from a PDF document block.
+    const rawTextChars = convertedPages.reduce((sum, n) => sum + (items[n - 1] ?? []).reduce((s, i) => s + i.str.length, 0), 0);
+    const ocr = await ocrPages(pdf, convertedPages.filter((n) => !hasText(n)), options.ocrBudgetMs);
+    const pageLabels = await classify(pdf, convertedPages.filter((n) => hasText(n) || ocr.has(n)));
     const pages: PageInput[] = convertedPages.map((number) => ({
       number,
-      items: items[number - 1] ?? [],
+      items: ocr.get(number)?.items ?? items[number - 1] ?? [],
       labels: pageLabels[number],
+      ocrConfidence: ocr.get(number)?.confidence,
     }));
-    const rawTextChars = pages.reduce((sum, p) => sum + p.items.reduce((s, i) => s + i.str.length, 0), 0);
     const pageSizes = await Promise.all(
       convertedPages.map(async (number) => {
         const { width, height } = (await pdf.getPage(number)).getViewport({ scale: 1 });
@@ -53,7 +65,16 @@ export async function convertPdf(path: string, pageSpec?: string): Promise<Conve
       }),
     );
     const { markdown, textlessPages } = pagesToMarkdown(pages);
-    return { markdown, totalPages, convertedPages, textlessPages, rawTextChars, pageSizes, pageLabels };
+    return {
+      markdown,
+      totalPages,
+      convertedPages,
+      textlessPages,
+      rawTextChars,
+      pageSizes,
+      pageLabels,
+      ocrPages: [...ocr.keys()].sort((a, b) => a - b),
+    };
   } finally {
     await pdf.loadingTask.destroy();
   }
