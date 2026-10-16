@@ -7,7 +7,7 @@ import { getOrConvert } from './cache.js';
 import { convertPdf } from './convert.js';
 import { runHook } from './hook.js';
 import { hookCommand, install, settingsPath, stableNodePath, uninstall } from './install.js';
-import { estimatePdfTokens, estimateTokens, readStats } from './stats.js';
+import { estimatePdfTokens, estimateTokens, pdfReadMode, readStats } from './stats.js';
 
 const USAGE = `docdiet — PDFs as compact Markdown for AI coding agents
 
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
         : (await getOrConvert(file, values.pages)).conversion;
       if (values.output) await writeFile(values.output, conversion.markdown);
       else process.stdout.write(conversion.markdown);
-      const pdf = estimatePdfTokens(conversion);
+      const pdf = estimatePdfTokens(conversion, pdfReadMode(values.pages, conversion.totalPages));
       const md = estimateTokens(conversion.markdown);
       const scanned = conversion.textlessPages.length ? `, ${conversion.textlessPages.length} without text` : '';
       process.stderr.write(

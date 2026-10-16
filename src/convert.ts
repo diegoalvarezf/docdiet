@@ -8,6 +8,13 @@ export interface Conversion {
   convertedPages: number[];
   textlessPages: number[];
   rawTextChars: number;
+  pageSizes: PageSize[];
+}
+
+// In PDF points (1/72 inch), rotation applied: the size pdftoppm renders.
+export interface PageSize {
+  width: number;
+  height: number;
 }
 
 export function parsePageRange(spec: string | undefined, totalPages: number): number[] {
@@ -31,8 +38,14 @@ export async function convertPdf(path: string, pageSpec?: string): Promise<Conve
     const convertedPages = parsePageRange(pageSpec, totalPages);
     const pages: PageInput[] = convertedPages.map((number) => ({ number, items: items[number - 1] ?? [] }));
     const rawTextChars = pages.reduce((sum, p) => sum + p.items.reduce((s, i) => s + i.str.length, 0), 0);
+    const pageSizes = await Promise.all(
+      convertedPages.map(async (number) => {
+        const { width, height } = (await pdf.getPage(number)).getViewport({ scale: 1 });
+        return { width, height };
+      }),
+    );
     const { markdown, textlessPages } = pagesToMarkdown(pages);
-    return { markdown, totalPages, convertedPages, textlessPages, rawTextChars };
+    return { markdown, totalPages, convertedPages, textlessPages, rawTextChars, pageSizes };
   } finally {
     await pdf.loadingTask.destroy();
   }

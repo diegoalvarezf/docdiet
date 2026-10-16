@@ -5,8 +5,8 @@ import { homedir } from 'node:os';
 import { basename, extname, join, sep } from 'node:path';
 import { convertPdf, type Conversion } from './convert.js';
 
-// Bump when the Markdown output changes, so old cache entries are not reused.
-export const CONVERTER_VERSION = 2;
+// Bump when the Markdown output or the cached metadata changes, so old cache entries are not reused.
+export const CONVERTER_VERSION = 3;
 
 export function docdietHome(): string {
   return process.env.DOCDIET_HOME ?? join(homedir(), '.docdiet');
