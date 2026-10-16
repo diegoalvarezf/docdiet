@@ -40,7 +40,8 @@ def main():
     print(f"{len(dataset)} pages from {args.data}\n")
     print(f"{'label':<12} {'accuracy':>9} {'precision':>10} {'recall':>8}   (positives: real / predicted)")
     for i, name in enumerate(LABELS):
-        p, t = predicted[:, i], targets[:, i]
+        known = ~torch.isnan(targets[:, i])
+        p, t = predicted[known, i], targets[known, i]
         tp = (p * t).sum().item()
         accuracy = (p == t).float().mean().item()
         precision = tp / p.sum().item() if p.sum() else float("nan")

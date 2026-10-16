@@ -43,8 +43,16 @@ class Pages(Dataset):
     def __getitem__(self, i):
         row = self.rows[i]
         image = self.transform(Image.open(self.dir / row["file"]))
-        target = torch.tensor([float(row[k]) for k in LABELS])
+        # An empty cell means "unknown": that label is left out of the loss for this page.
+        target = torch.tensor([float(row[k]) if row.get(k, "") != "" else float("nan") for k in LABELS])
         return image, target
+
+
+def masked_bce(logits, targets):
+    """Binary cross-entropy per label, ignoring unknown (NaN) targets."""
+    known = ~torch.isnan(targets)
+    losses = nn.functional.binary_cross_entropy_with_logits(logits, torch.nan_to_num(targets), reduction="none")
+    return (losses * known).sum() / known.sum().clamp(min=1)
 
 
 def build_model() -> nn.Module:
@@ -58,22 +66,24 @@ def build_model() -> nn.Module:
 @torch.no_grad()
 def evaluate(model, loader, device, loss_fn):
     model.eval()
-    total_loss, correct, count = 0.0, torch.zeros(len(LABELS)), 0
+    total_loss, correct, count, batches = 0.0, torch.zeros(len(LABELS)), torch.zeros(len(LABELS)), 0
     for images, targets in loader:
         images, targets = images.to(device), targets.to(device)
         logits = model(images)
-        total_loss += loss_fn(logits, targets).item() * len(images)
+        total_loss += loss_fn(logits, targets).item()
+        batches += 1
+        known = ~torch.isnan(targets)
         predictions = (torch.sigmoid(logits) > 0.5).float()
-        correct += (predictions == targets).sum(dim=0).cpu()
-        count += len(images)
-    return total_loss / count, correct / count
+        correct += ((predictions == targets) & known).sum(dim=0).cpu()
+        count += known.sum(dim=0).cpu()
+    return total_loss / batches, correct / count.clamp(min=1)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", nargs="+", default=[str(ML_DIR / "data" / "synth" / "train" / "labels.csv")],
                         help="labels CSVs to train on; append *N to repeat one, e.g. 'data/real/train.csv*3'")
-    parser.add_argument("--val", type=Path, default=ML_DIR / "data" / "synth" / "val" / "labels.csv")
+    parser.add_argument("--val", type=Path, nargs="+", default=[ML_DIR / "data" / "synth" / "val" / "labels.csv"])
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -87,11 +97,11 @@ def main():
         path, repeat = (path, int(repeat)) if star else (spec, 1)
         parts += [Pages(Path(path), train=True)] * repeat
     train_loader = DataLoader(ConcatDataset(parts), batch_size=args.batch, shuffle=True, num_workers=4)
-    val_loader = DataLoader(Pages(args.val, train=False), batch_size=args.batch, num_workers=4)
+    val_loader = DataLoader(ConcatDataset([Pages(v, train=False) for v in args.val]), batch_size=args.batch, num_workers=4)
 
     model = build_model().to(device)
     # Sigmoid + binary cross-entropy per label: each output is its own yes/no question.
-    loss_fn = nn.BCEWithLogitsLoss()
+    loss_fn = masked_bce
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

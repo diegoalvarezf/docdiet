@@ -5,3 +5,4 @@ onnx==1.23.1
 onnxruntime==1.30.0
 numpy==2.5.3
 pillow==12.3.0
+pyarrow==25.0.1
