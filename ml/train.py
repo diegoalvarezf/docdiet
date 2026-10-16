@@ -12,7 +12,7 @@ from pathlib import Path
 import torch
 from PIL import Image
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset
 from torchvision import models, transforms
 
 LABELS = ["table", "figure", "two_columns"]
@@ -23,10 +23,12 @@ NORMALIZE = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 
 
 
 class Pages(Dataset):
-    def __init__(self, split_dir: Path, train: bool):
-        with open(split_dir / "labels.csv") as f:
+    """Pages listed in a labels CSV; images live next to it."""
+
+    def __init__(self, labels_csv: Path, train: bool):
+        with open(labels_csv) as f:
             self.rows = list(csv.DictReader(f))
-        self.dir = split_dir
+        self.dir = labels_csv.parent
         steps = [transforms.Grayscale(num_output_channels=3)]
         if train:
             # Small random shifts and contrast changes so it can't memorize exact pixels.
@@ -69,7 +71,9 @@ def evaluate(model, loader, device, loss_fn):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=Path, default=ML_DIR / "data" / "synth")
+    parser.add_argument("--train", nargs="+", default=[str(ML_DIR / "data" / "synth" / "train" / "labels.csv")],
+                        help="labels CSVs to train on; append *N to repeat one, e.g. 'data/real/train.csv*3'")
+    parser.add_argument("--val", type=Path, default=ML_DIR / "data" / "synth" / "val" / "labels.csv")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -77,8 +81,13 @@ def main():
     args = parser.parse_args()
 
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-    train_loader = DataLoader(Pages(args.data / "train", train=True), batch_size=args.batch, shuffle=True, num_workers=4)
-    val_loader = DataLoader(Pages(args.data / "val", train=False), batch_size=args.batch, num_workers=4)
+    parts = []
+    for spec in args.train:
+        path, star, repeat = spec.rpartition("*")
+        path, repeat = (path, int(repeat)) if star else (spec, 1)
+        parts += [Pages(Path(path), train=True)] * repeat
+    train_loader = DataLoader(ConcatDataset(parts), batch_size=args.batch, shuffle=True, num_workers=4)
+    val_loader = DataLoader(Pages(args.val, train=False), batch_size=args.batch, num_workers=4)
 
     model = build_model().to(device)
     # Sigmoid + binary cross-entropy per label: each output is its own yes/no question.

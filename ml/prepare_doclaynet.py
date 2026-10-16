@@ -9,6 +9,7 @@ text boxes sit, so it is an approximation.
 
 import csv
 import json
+import random
 from pathlib import Path
 
 import pymupdf
@@ -19,6 +20,7 @@ ML_DIR = Path(__file__).parent
 SOURCE = ML_DIR / "data" / "doclaynet" / "small_dataset"
 OUT = ML_DIR / "data" / "real"
 TEXT = {"Text", "List-item"}
+TEST_SHARE = 0.3
 
 
 def is_two_columns(boxes) -> bool:
@@ -53,16 +55,23 @@ def main():
                 matrix = pymupdf.Matrix(IMG_W / page.rect.width, IMG_H / page.rect.height)
                 page.get_pixmap(matrix=matrix, colorspace=pymupdf.csGRAY).save(OUT / f"{ann_path.stem}.png")
             rows.append([f"{ann_path.stem}.png", int("Table" in categories), int("Picture" in categories),
-                         int(is_two_columns(boxes)), ann["metadata"]["doc_category"]])
+                         int(is_two_columns(boxes)), ann["metadata"]["doc_category"],
+                         ann["metadata"]["original_filename"]])
 
-    with open(OUT / "labels.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["file", "table", "figure", "two_columns", "doc_category"])
-        writer.writerows(rows)
-    n = len(rows)
-    print(f"{n} real pages -> {OUT}")
-    for i, name in enumerate(["table", "figure", "two_columns"], start=1):
-        print(f"  {name}: {sum(r[i] for r in rows)} of {n}")
+    # Split by source document, not by page: pages of one report look alike, and seeing
+    # some of them in training would make the test look better than it is.
+    docs = sorted({r[5] for r in rows})
+    random.Random(0).shuffle(docs)
+    test_docs = set(docs[: int(len(docs) * TEST_SHARE)])
+    header = ["file", "table", "figure", "two_columns", "doc_category", "document"]
+    for name, subset in (("labels.csv", rows), ("train.csv", [r for r in rows if r[5] not in test_docs]),
+                         ("test.csv", [r for r in rows if r[5] in test_docs])):
+        with open(OUT / name, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerows(subset)
+        print(f"{name}: {len(subset)} pages  " + "  ".join(
+            f"{label} {sum(r[i] for r in subset)}" for i, label in enumerate(["table", "figure", "two_columns"], start=1)))
 
 
 if __name__ == "__main__":

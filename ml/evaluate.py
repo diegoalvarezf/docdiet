@@ -3,7 +3,7 @@
 Accuracy alone hides a lot when a label is rare, so it also reports precision (when it says
 "table", how often is there one?) and recall (of the real tables, how many did it find?).
 
-    ml/.venv/bin/python ml/evaluate.py --data ml/data/real
+    ml/.venv/bin/python ml/evaluate.py --data ml/data/real/test.csv
 """
 
 import argparse
@@ -18,7 +18,7 @@ from train import LABELS, ML_DIR, Pages, build_model
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=Path, default=ML_DIR / "data" / "real")
+    parser.add_argument("--data", type=Path, default=ML_DIR / "data" / "real" / "test.csv", help="labels CSV")
     parser.add_argument("--model", type=Path, default=ML_DIR / "runs" / "model.pt")
     parser.add_argument("--errors", type=Path, help="write misclassified pages to this CSV")
     args = parser.parse_args()
