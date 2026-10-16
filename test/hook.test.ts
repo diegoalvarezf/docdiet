@@ -58,11 +58,18 @@ describe('handleHookInput', () => {
     expect(Object.keys(output!.hookSpecificOutput.updatedInput)).toEqual(['file_path']);
   });
 
-  it('converts only the requested pages', async () => {
+  it('serves requested pages as a window of the whole Markdown', async () => {
     const output = await handleHookInput({ tool_name: 'Read', tool_input: { file_path: sample, pages: '2' } });
-    const markdown = readFileSync(output!.hookSpecificOutput.updatedInput.file_path, 'utf8');
-    expect(markdown).toContain('Next Steps');
-    expect(markdown).not.toContain('Annual Report');
+    const { file_path, offset, limit } = output!.hookSpecificOutput.updatedInput;
+    const window = readFileSync(file_path, 'utf8').split('\n').slice(offset! - 1, offset! - 1 + limit!).join('\n');
+    expect(window).toContain('Next Steps');
+    expect(window).not.toContain('Annual Report');
+    expect(output?.hookSpecificOutput.additionalContext).toContain('Markdown of the whole PDF (3 pages');
+    expect((await readStats()).at(-1)).toMatchObject({ pages: 1, readMode: 'images' });
+  });
+
+  it('leaves mostly scanned page ranges to Claude', async () => {
+    expect(await handleHookInput({ tool_name: 'Read', tool_input: { file_path: sample, pages: '3' } })).toBeNull();
   });
 
   it('leaves mostly scanned PDFs to Claude', async () => {
@@ -89,11 +96,11 @@ describe('planRead', () => {
   const markdown = Array.from({ length: 30 }, (_, i) => page(i + 1)).join('\n');
 
   it('does nothing when the Markdown fits in one Read', () => {
-    expect(planRead(markdown, '/c/doc.md', 25_000)).toEqual({});
+    expect(planRead(markdown, '/c/doc.md', undefined, 25_000)).toEqual({});
   });
 
   it('returns a first window and a page index when it does not fit', () => {
-    const { limit, context } = planRead(markdown, '/c/doc.md', 2_000);
+    const { limit, context } = planRead(markdown, '/c/doc.md', undefined, 2_000)!;
     const window = markdown.split('\n').slice(0, limit).join('\n');
     expect(window.length).toBeLessThanOrEqual(2_000 * 3);
     expect(limit).toBeGreaterThan(0);
@@ -104,7 +111,26 @@ describe('planRead', () => {
 
   it('windows anything over 256 KB even under the token cap', () => {
     const big = 'x'.repeat(100) + '\n';
-    expect(planRead(big.repeat(3_000), '/c/doc.md', 1_000_000).limit).toBeGreaterThan(0);
+    expect(planRead(big.repeat(3_000), '/c/doc.md', undefined, 1_000_000)?.limit).toBeGreaterThan(0);
+  });
+
+  it('maps a page range to its lines and points at the rest of the document', () => {
+    const plan = planRead(markdown, '/c/doc.md', [3, 4], 25_000)!;
+    const lines = markdown.split('\n');
+    expect(lines[plan.offset! - 1]).toBe('<!-- page 3 -->');
+    expect(lines[plan.offset! - 1 + plan.limit!]).toBe('<!-- page 5 -->');
+    expect(plan.context).toContain('pages 3-4 are lines');
+    expect(plan.context).toContain('30 pages');
+  });
+
+  it('caps a page range that does not fit in one Read', () => {
+    const plan = planRead(markdown, '/c/doc.md', [1, 30], 2_000)!;
+    expect(plan.offset).toBeUndefined();
+    expect(plan.context).toContain('do not fit in one Read');
+  });
+
+  it('gives up on pages missing from the Markdown', () => {
+    expect(planRead(markdown, '/c/doc.md', [31], 25_000)).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { getOrConvert, isInCache } from './cache.js';
+import { parsePageRange } from './convert.js';
 import { estimatePdfTokens, estimateTokens, pdfReadMode, recordStat } from './stats.js';
 
 export interface HookInput {
@@ -39,37 +40,65 @@ function readMaxTokens(): number {
 }
 
 export interface ReadPlan {
+  offset?: number;
   limit?: number;
   context?: string;
 }
 
-// A Markdown that does not fit in one Read gets an explicit first window plus a page index,
-// so Claude can jump with offset/limit instead of hitting Read's size error or truncation.
-export function planRead(markdown: string, markdownPath: string, maxTokens = readMaxTokens()): ReadPlan {
-  const budget = Math.floor(maxTokens * SAFE_CHARS_PER_TOKEN * 0.8);
-  if (Buffer.byteLength(markdown) <= READ_MAX_BYTES && markdown.length <= budget) return {};
-
+// Maps a Read onto the Markdown of the whole PDF. A `pages` request becomes the line window of
+// those pages, and anything that does not fit in one Read gets a first window that does. When
+// there is more than Claude asked for or got, the context says where it is and how to reach it.
+// Returns null when the requested pages are not in the Markdown.
+export function planRead(
+  markdown: string,
+  markdownPath: string,
+  pages?: number[],
+  maxTokens = readMaxTokens(),
+): ReadPlan | null {
   const lines = markdown.split('\n');
-  let limit = 0;
-  for (let chars = 0; limit < lines.length && chars + lines[limit].length + 1 <= budget; limit++) {
-    chars += lines[limit].length + 1;
-  }
-  limit = Math.max(1, limit);
-
   const pageStarts = lines.flatMap((line, i) => {
     const match = /^<!-- page (\d+) -->$/.exec(line);
     return match ? [{ page: Number(match[1]), line: i + 1 }] : [];
   });
-  const step = Math.ceil(pageStarts.length / MAX_INDEX_ENTRIES);
-  const index = pageStarts.filter((_, i) => i % step === 0).map((p) => `p${p.page}:${p.line}`);
-  const lastShown = pageStarts.filter((p) => p.line <= limit).at(-1)?.page;
 
-  const context =
-    `docdiet: the Markdown (${markdownPath}, ${lines.length} lines, ~${estimateTokens(markdown)} tokens) is too large ` +
-    `for one Read, so this Read returns only lines 1-${limit}${lastShown ? ` (through page ${lastShown})` : ''}. ` +
-    `Read it with offset/limit for the rest, or Grep it.` +
-    (index.length ? ` Page start lines (page:line): ${index.join(' ')}` : '');
-  return { limit, context };
+  let first = 1;
+  let last = lines.length;
+  if (pages?.length) {
+    const start = pageStarts.find((p) => p.page === pages[0]);
+    if (!start) return null;
+    first = start.line;
+    const next = pageStarts.find((p) => p.page > pages[pages.length - 1]);
+    last = next ? next.line - 1 : lines.length;
+  }
+
+  const budget = Math.floor(maxTokens * SAFE_CHARS_PER_TOKEN * 0.8);
+  let limit = 0;
+  for (let chars = 0; first + limit <= last; limit++) {
+    chars += lines[first + limit - 1].length + 1;
+    if (chars > budget) break;
+  }
+  limit = Math.max(1, limit);
+  const truncated = first + limit - 1 < last;
+  const tooBigForWholeRead = Buffer.byteLength(markdown) > READ_MAX_BYTES;
+  if (!pages?.length && !truncated && !tooBigForWholeRead) return {};
+
+  const totalPages = pageStarts.at(-1)?.page;
+  const about = `${markdownPath}, the Markdown of the whole PDF (${totalPages ?? '?'} pages, ${lines.length} lines, ~${estimateTokens(markdown)} tokens)`;
+  const lastShown = pageStarts.filter((p) => p.line <= first + limit - 1).at(-1)?.page;
+  const shown = `lines ${first}-${first + limit - 1}${lastShown ? ` (through page ${lastShown})` : ''}`;
+  const parts = pages?.length
+    ? [
+        `docdiet: pages ${pages[0]}-${pages[pages.length - 1]} are lines ${first}-${last} of ${about}.`,
+        truncated ? `They do not fit in one Read, so this Read returns only ${shown}.` : '',
+        'For more, Read that file with offset/limit instead of requesting PDF page ranges, or Grep it.',
+      ]
+    : [`docdiet: ${about} is too large for one Read, so this Read returns only ${shown}.`, 'Read it with offset/limit for the rest, or Grep it.'];
+  if (truncated || tooBigForWholeRead) {
+    const step = Math.ceil(pageStarts.length / MAX_INDEX_ENTRIES);
+    const index = pageStarts.filter((_, i) => i % step === 0).map((p) => `p${p.page}:${p.line}`);
+    if (index.length) parts.push(`Page start lines (page:line): ${index.join(' ')}`);
+  }
+  return { offset: first > 1 ? first : undefined, limit, context: parts.filter(Boolean).join(' ') };
 }
 
 // Returns null to let Claude read the file untouched. Any failure must fall through:
@@ -81,31 +110,43 @@ export async function handleHookInput(input: HookInput): Promise<HookOutput | nu
   if (isInCache(path) || !existsSync(path)) return null;
 
   try {
-    const { markdownPath, conversion, cached } = await getOrConvert(path, input.tool_input?.pages);
-    const pages = conversion.convertedPages.length;
-    // Mostly scanned: Markdown would lose most of the content, the original is better.
-    if (pages === 0 || conversion.textlessPages.length * 2 >= pages) return null;
-
+    // Always the whole PDF: one cache entry serves every page range, and Claude can be told
+    // the rest of the document is already there instead of asking for it 20 pages at a time.
+    const { markdownPath, conversion, cached } = await getOrConvert(path);
     const { offset, limit, pages: pageSpec } = input.tool_input ?? {};
+    const requested = parsePageRange(pageSpec, conversion.totalPages);
+    const textless = requested.filter((p) => conversion.textlessPages.includes(p));
+    // Mostly scanned: Markdown would lose most of the content, the original is better.
+    if (requested.length === 0 || textless.length * 2 >= requested.length) return null;
+
+    // offset/limit address Markdown lines: Claude uses them to page through a long conversion.
+    const explicit = offset !== undefined || limit !== undefined;
+    const plan = explicit ? {} : planRead(conversion.markdown, markdownPath, pageSpec ? requested : undefined);
+    if (!plan) return null;
+    const updatedInput: ReadInput = { file_path: markdownPath };
+    const windowOffset = offset ?? plan.offset;
+    const windowLimit = limit ?? plan.limit;
+    if (windowOffset !== undefined) updatedInput.offset = windowOffset;
+    if (windowLimit !== undefined) updatedInput.limit = windowLimit;
+
     const readMode = pdfReadMode(pageSpec, conversion.totalPages);
-    const pdfTokens = estimatePdfTokens(conversion, readMode);
-    const markdownTokens = estimateTokens(conversion.markdown);
+    const pdfTokens = estimatePdfTokens(
+      { rawTextChars: conversion.rawTextChars, pageSizes: requested.map((p) => conversion.pageSizes[p - 1]) },
+      readMode,
+    );
+    const servedLines = conversion.markdown.split('\n').slice((windowOffset ?? 1) - 1);
+    const served = windowLimit === undefined ? servedLines : servedLines.slice(0, windowLimit);
+    const markdownTokens = estimateTokens(served.join('\n'));
     await recordStat({
       ts: new Date().toISOString(),
       file: path,
-      pages,
+      pages: requested.length,
       pdfTokens,
       markdownTokens,
       cached,
       readMode,
     }).catch(() => {});
 
-    // offset/limit now address Markdown lines: Claude uses them to page through a long conversion.
-    const plan = offset === undefined && limit === undefined ? planRead(conversion.markdown, markdownPath) : {};
-    const updatedInput: ReadInput = { file_path: markdownPath };
-    if (offset !== undefined) updatedInput.offset = offset;
-    const windowLimit = limit ?? plan.limit;
-    if (windowLimit !== undefined) updatedInput.limit = windowLimit;
     return {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',

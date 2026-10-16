@@ -22,7 +22,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 - The hook must never block or break a Read: any error → exit 0 with no output (Claude reads the original).
 - Paths inside the cache dir are never intercepted — that is how Claude can still open the original pages.
 - Mostly scanned PDFs (≥ half the pages without text) pass through untouched.
-- `updatedInput` replaces the whole tool input: send `file_path` plus `offset`/`limit` (they address Markdown lines); drop `pages`, it was applied during conversion.
+- `updatedInput` replaces the whole tool input: send `file_path` plus `offset`/`limit` (they address Markdown lines). The hook always converts the whole PDF; `pages` becomes the line window of those pages.
 - Read's `validateInput` runs on the original input *before* PreToolUse hooks; `@` attachments never reach hooks.
 - Bump `CONVERTER_VERSION` whenever Markdown output or cached metadata changes.
 - Pin new dependencies to versions published at least two weeks ago.
