@@ -9,7 +9,15 @@ export interface TextItem {
 export interface PageInput {
   number: number;
   items: TextItem[];
+  // From the page classifier: what the text alone does not carry well.
+  labels?: string[];
 }
+
+const LABEL_NOTES: Record<string, string> = {
+  table: 'table on this page: cell layout may be lost, check the original page if exact values matter',
+  figure: 'figure on this page: not in the Markdown, see the original page',
+  two_columns: 'two-column page: text order may mix the columns',
+};
 
 export interface MarkdownResult {
   markdown: string;
@@ -139,6 +147,7 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
   pages.forEach((page, index) => {
     const pageLines = lines[index];
     out.push(`<!-- page ${page.number} -->`);
+    for (const label of page.labels ?? []) if (LABEL_NOTES[label]) out.push(`<!-- ${LABEL_NOTES[label]} -->`);
     if (pageLines.length === 0) {
       textlessPages.push(page.number);
       out.push('<!-- no text layer on this page (scanned image or figure): not converted -->', '');

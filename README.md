@@ -15,7 +15,8 @@ $ docdiet convert report.pdf -o report.md
 16 pages · ~19361 tokens instead of ~44582 (57% saved)
 ```
 
-Token figures are **estimates** (~4 characters per token, ~1,600 tokens per page image).
+Token figures are **estimates**: ~4 characters per token, and page images priced the way Claude Code sends the PDF
+(whole document, or 100 DPI JPEGs when read by page ranges). See `docs/claude-code-internals.md`.
 
 ## How it works
 
@@ -56,11 +57,17 @@ node dist/cli.js install --project  # or only this project (.claude/settings.loc
 
 Restart open Claude Code sessions after installing.
 
-## Limitations (phase 1)
+## Page classifier
+
+A small neural network (MobileNetV3-small fine-tuned on DocLayNet and synthetic pages, `ml/`) looks at each
+page and says whether it has a table, a figure or two columns. It ships as `models/page-classifier.onnx` and
+runs locally with `onnxruntime-node` (~20-30 ms per page, first conversion only). For now it adds notes to the
+Markdown, so Claude knows when to check the original page. `DOCDIET_CLASSIFY=0` turns it off.
+
+## Limitations
 
 - Scanned pages are skipped, not OCR'd.
-- Tables come out as plain lines, two-column layouts may interleave, figures are dropped.
+- Tables come out as plain lines, two-column layouts may interleave, figures are dropped (the classifier flags them).
 - Headings are detected by font size only (bold body-size headings are not).
 
-These are what phase 2 is for: a small neural network that classifies each page (text / table / figure / scan)
-so each kind gets the right treatment.
+Next: use the classifier to route pages: tables → table extraction, two columns → column-aware reading order.

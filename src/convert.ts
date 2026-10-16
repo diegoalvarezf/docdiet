@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { extractTextItems, getDocumentProxy } from 'unpdf';
+import { labelsOf, pageProbabilities, type PageLabel } from './classify.js';
 import { pagesToMarkdown, type PageInput } from './markdown.js';
 
 export interface Conversion {
@@ -9,6 +10,8 @@ export interface Conversion {
   textlessPages: number[];
   rawTextChars: number;
   pageSizes: PageSize[];
+  // Classifier labels for pages that have any; empty when classification is off or failed.
+  pageLabels: Record<number, PageLabel[]>;
 }
 
 // In PDF points (1/72 inch), rotation applied: the size pdftoppm renders.
@@ -36,7 +39,12 @@ export async function convertPdf(path: string, pageSpec?: string): Promise<Conve
   try {
     const { totalPages, items } = await extractTextItems(pdf);
     const convertedPages = parsePageRange(pageSpec, totalPages);
-    const pages: PageInput[] = convertedPages.map((number) => ({ number, items: items[number - 1] ?? [] }));
+    const pageLabels = await classify(pdf, convertedPages.filter((n) => (items[n - 1] ?? []).length > 0));
+    const pages: PageInput[] = convertedPages.map((number) => ({
+      number,
+      items: items[number - 1] ?? [],
+      labels: pageLabels[number],
+    }));
     const rawTextChars = pages.reduce((sum, p) => sum + p.items.reduce((s, i) => s + i.str.length, 0), 0);
     const pageSizes = await Promise.all(
       convertedPages.map(async (number) => {
@@ -45,8 +53,23 @@ export async function convertPdf(path: string, pageSpec?: string): Promise<Conve
       }),
     );
     const { markdown, textlessPages } = pagesToMarkdown(pages);
-    return { markdown, totalPages, convertedPages, textlessPages, rawTextChars, pageSizes };
+    return { markdown, totalPages, convertedPages, textlessPages, rawTextChars, pageSizes, pageLabels };
   } finally {
     await pdf.loadingTask.destroy();
+  }
+}
+
+// The classifier only adds notes: if it is disabled (DOCDIET_CLASSIFY=0) or fails, convert without them.
+async function classify(pdf: Parameters<typeof pageProbabilities>[0], pages: number[]): Promise<Record<number, PageLabel[]>> {
+  if (process.env.DOCDIET_CLASSIFY === '0' || pages.length === 0) return {};
+  try {
+    const labels: Record<number, PageLabel[]> = {};
+    for (const [page, probabilities] of await pageProbabilities(pdf, pages)) {
+      const found = labelsOf(probabilities);
+      if (found.length) labels[page] = found;
+    }
+    return labels;
+  } catch {
+    return {};
   }
 }

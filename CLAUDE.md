@@ -11,6 +11,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 | File | Responsibility |
 |------|---------------|
 | `src/markdown.ts` | Pure: positioned text items → Markdown (lines, headings by font size, paragraphs, lists, de-hyphenation, running header/footer + page number removal, textless pages) |
+| `src/classify.ts` | Page classifier: renders pages to 224×320 gray (pdf.js + `@napi-rs/canvas`), runs `models/page-classifier.onnx` |
 | `src/convert.ts` | Reads the PDF with unpdf, page ranges (`parsePageRange`), calls `pagesToMarkdown` |
 | `src/cache.ts` | `~/.docdiet/cache` (or `$DOCDIET_HOME`), key = realpath + size + mtime + pages + `CONVERTER_VERSION`; writes `.md`, `.json` meta and a `.pdf` symlink to the original |
 | `src/hook.ts` | `handleHookInput` (pure-ish, testable) + `runHook` (stdin/stdout); `planRead` windows Markdown too big for one Read |
@@ -38,6 +39,9 @@ pnpm test
 
 ## Status
 - Phase 1 done: hook, cache, fast text extraction, install/uninstall, stats.
-- Phase 2 (next): page classifier (text / table / figure / scan) — fine-tune a small pretrained CNN (MobileNet/ResNet18)
-  in PyTorch on DocLayNet / PubLayNet or synthetic PDFs, export to ONNX, run with `onnxruntime-node`. Then route:
-  scans → OCR, tables → table extraction, two-column → column-aware reading order. Ask before downloading datasets.
+- Phase 2 in progress: MobileNetV3-small multi-label classifier (table / figure / two_columns; scans come from the
+  text layer) trained in `ml/` on DocLayNet v1.2 + synthetic pages. Best checkpoint `ml/runs/model-varied2.pt`
+  (real test: table 88%, figure 86%, two_columns 98% accuracy), exported with `ml/export.py` to
+  `models/page-classifier.onnx` (preprocessing + sigmoid inside the graph; Node matches Python on 100% of labels).
+  It currently only annotates the Markdown. Next: route pages: tables → table extraction, two-column →
+  column-aware reading order, scans → OCR. Ask before downloading datasets.

@@ -8,7 +8,8 @@
     "docdiet": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "models"
   ],
   "engines": {
     "node": ">=22.0.0"
@@ -19,6 +20,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.10",
+    "onnxruntime-node": "1.30.0",
     "unpdf": "1.8.1"
   },
   "devDependencies": {
