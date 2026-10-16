@@ -16,7 +16,7 @@ export interface PageInput {
 const LABEL_NOTES: Record<string, string> = {
   table: 'table on this page: cell layout may be lost, check the original page if exact values matter',
   figure: 'figure on this page: not in the Markdown, see the original page',
-  two_columns: 'two-column page: text order may mix the columns',
+  two_columns: 'two-column page: columns not separated, text order may mix them',
 };
 
 export interface MarkdownResult {
@@ -34,11 +34,8 @@ interface Line {
 const BULLET = /^([•◦▪‣∙·●○■□–-]|\*|\d{1,3}[.)]|[a-z][.)])\s+/;
 const PAGE_NUMBER = /^(page\s*)?\d{1,4}(\s*(of|\/|de)\s*\d{1,4})?$/i;
 
-function buildLines(items: TextItem[]): Line[] {
-  const sorted = items
-    .filter((i) => i.str.length > 0)
-    .sort((a, b) => b.y - a.y || a.x - b.x);
-
+function groupRows(items: TextItem[]): TextItem[][] {
+  const sorted = items.filter((i) => i.str.length > 0).sort((a, b) => b.y - a.y || a.x - b.x);
   const rows: TextItem[][] = [];
   for (const item of sorted) {
     const row = rows[rows.length - 1];
@@ -46,29 +43,102 @@ function buildLines(items: TextItem[]): Line[] {
     if (row && Math.abs(row[0].y - item.y) <= tolerance) row.push(item);
     else rows.push([item]);
   }
+  return rows;
+}
 
-  const lines: Line[] = [];
-  for (const row of rows) {
-    row.sort((a, b) => a.x - b.x);
-    let text = '';
-    let end = -Infinity;
-    let sizeWeight = 0;
-    let sizeSum = 0;
-    for (const item of row) {
-      // pdf.js splits words into separate items; a visible gap means a space
-      const gap = item.x - end;
-      if (text && gap > item.fontSize * 0.15 && !/\s$/.test(text) && !/^\s/.test(item.str)) text += ' ';
-      text += item.str;
-      end = item.x + item.width;
-      const chars = item.str.trim().length;
-      sizeSum += item.fontSize * chars;
-      sizeWeight += chars;
-    }
-    text = text.replace(/\s+/g, ' ').trim();
-    if (!text) continue;
-    lines.push({ text, x: row[0].x, y: row[0].y, size: sizeWeight ? sizeSum / sizeWeight : row[0].fontSize });
+function rowToLine(row: TextItem[]): Line | undefined {
+  row.sort((a, b) => a.x - b.x);
+  let text = '';
+  let end = -Infinity;
+  let sizeWeight = 0;
+  let sizeSum = 0;
+  for (const item of row) {
+    // pdf.js splits words into separate items; a visible gap means a space
+    const gap = item.x - end;
+    if (text && gap > item.fontSize * 0.15 && !/\s$/.test(text) && !/^\s/.test(item.str)) text += ' ';
+    text += item.str;
+    end = item.x + item.width;
+    const chars = item.str.trim().length;
+    sizeSum += item.fontSize * chars;
+    sizeWeight += chars;
   }
-  return lines;
+  text = text.replace(/\s+/g, ' ').trim();
+  if (!text) return undefined;
+  return { text, x: row[0].x, y: row[0].y, size: sizeWeight ? sizeSum / sizeWeight : row[0].fontSize };
+}
+
+// The gutter is the x in the middle band of the page that the fewest text items cover.
+// Returns undefined when nothing looks like a gutter or one side is nearly empty.
+export function findGutter(items: TextItem[]): number | undefined {
+  const text = items.filter((i) => i.str.trim().length > 0);
+  if (text.length < 10) return undefined;
+  const left = Math.min(...text.map((i) => i.x));
+  const right = Math.max(...text.map((i) => i.x + i.width));
+  const span = right - left;
+  if (span <= 0) return undefined;
+
+  const from = Math.floor(left + span * 0.3);
+  const to = Math.ceil(left + span * 0.7);
+  const coverage = new Array<number>(to - from + 1).fill(0);
+  for (const item of text) {
+    for (let x = Math.max(from, Math.ceil(item.x)); x <= Math.min(to, Math.floor(item.x + item.width)); x++) coverage[x - from]++;
+  }
+  const least = Math.min(...coverage);
+  // A real gutter is crossed only by the odd full-width title or footer.
+  if (least > text.length * 0.1) return undefined;
+
+  let best = { start: 0, length: 0 };
+  for (let i = 0; i < coverage.length; ) {
+    if (coverage[i] !== least) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < coverage.length && coverage[j] === least) j++;
+    if (j - i > best.length) best = { start: i, length: j - i };
+    i = j;
+  }
+  const gap = from + best.start + best.length / 2;
+  const leftItems = text.filter((i) => i.x + i.width <= gap);
+  const rightItems = text.filter((i) => i.x >= gap);
+  if (Math.min(leftItems.length, rightItems.length) < text.length * 0.2) return undefined;
+  // The emptiest x can sit beside a short title instead of between the columns. The right column's
+  // left edge is aligned (the left one is ragged: lines end anywhere), so put the gutter just before it.
+  const starts = rightItems.map((i) => i.x).sort((a, b) => a - b);
+  return starts[Math.floor(starts.length / 4)] - 3;
+}
+
+// Reading order for a two-column page: rows crossing the gutter (titles, footers) cut the page into
+// stretches, and each stretch is read left column first, then right column.
+function columnRows(items: TextItem[], gutter: number): TextItem[][] {
+  const ordered: TextItem[][] = [];
+  let leftRows: TextItem[][] = [];
+  let rightRows: TextItem[][] = [];
+  const flush = () => {
+    ordered.push(...leftRows, ...rightRows);
+    leftRows = [];
+    rightRows = [];
+  };
+  for (const row of groupRows(items)) {
+    // pdf.js emits whitespace items that can stretch across the gutter; only real text spans it.
+    if (row.some((i) => i.str.trim() && i.x < gutter - 1 && i.x + i.width > gutter + 1)) {
+      flush();
+      ordered.push(row);
+      continue;
+    }
+    const leftPart = row.filter((i) => i.str.trim() && i.x + i.width / 2 < gutter);
+    const rightPart = row.filter((i) => i.str.trim() && i.x + i.width / 2 >= gutter);
+    if (leftPart.length) leftRows.push(leftPart);
+    if (rightPart.length) rightRows.push(rightPart);
+  }
+  flush();
+  return ordered;
+}
+
+function buildLines(items: TextItem[], twoColumns = false): { lines: Line[]; reordered: boolean } {
+  const gutter = twoColumns ? findGutter(items) : undefined;
+  const rows = gutter === undefined ? groupRows(items) : columnRows(items, gutter);
+  return { lines: rows.map(rowToLine).filter((l): l is Line => l !== undefined), reordered: gutter !== undefined };
 }
 
 function bodySize(pages: Line[][]): number {
@@ -136,7 +206,8 @@ function joinWrapped(paragraph: string, next: string): string {
 }
 
 export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
-  const lines = pages.map((p) => buildLines(p.items));
+  const built = pages.map((p) => buildLines(p.items, p.labels?.includes('two_columns')));
+  const lines = built.map((b) => b.lines);
   const body = bodySize(lines);
   const levels = headingLevels(lines, body);
   const isEdge = edgeTest(lines);
@@ -147,7 +218,11 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
   pages.forEach((page, index) => {
     const pageLines = lines[index];
     out.push(`<!-- page ${page.number} -->`);
-    for (const label of page.labels ?? []) if (LABEL_NOTES[label]) out.push(`<!-- ${LABEL_NOTES[label]} -->`);
+    for (const label of page.labels ?? []) {
+      // Columns already put in reading order need no warning.
+      if (label === 'two_columns' && built[index].reordered) continue;
+      if (LABEL_NOTES[label]) out.push(`<!-- ${LABEL_NOTES[label]} -->`);
+    }
     if (pageLines.length === 0) {
       textlessPages.push(page.number);
       out.push('<!-- no text layer on this page (scanned image or figure): not converted -->', '');

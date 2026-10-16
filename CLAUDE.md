@@ -10,7 +10,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 
 | File | Responsibility |
 |------|---------------|
-| `src/markdown.ts` | Pure: positioned text items → Markdown (lines, headings by font size, paragraphs, lists, de-hyphenation, running header/footer + page number removal, textless pages) |
+| `src/markdown.ts` | Pure: positioned text items → Markdown (lines, headings by font size, paragraphs, lists, de-hyphenation, running header/footer + page number removal, textless pages, column order on pages labelled two-column) |
 | `src/classify.ts` | Page classifier: renders pages to 224×320 gray (pdf.js + `@napi-rs/canvas`), runs `models/page-classifier.onnx` |
 | `src/convert.ts` | Reads the PDF with unpdf, page ranges (`parsePageRange`), calls `pagesToMarkdown` |
 | `src/cache.ts` | `~/.docdiet/cache` (or `$DOCDIET_HOME`), key = realpath + size + mtime + pages + `CONVERTER_VERSION`; writes `.md`, `.json` meta and a `.pdf` symlink to the original |
@@ -43,5 +43,5 @@ pnpm test
   text layer) trained in `ml/` on DocLayNet v1.2 + synthetic pages. Best checkpoint `ml/runs/model-varied2.pt`
   (real test: table 88%, figure 86%, two_columns 98% accuracy), exported with `ml/export.py` to
   `models/page-classifier.onnx` (preprocessing + sigmoid inside the graph; Node matches Python on 100% of labels).
-  It currently only annotates the Markdown. Next: route pages: tables → table extraction, two-column →
-  column-aware reading order, scans → OCR. Ask before downloading datasets.
+  Routing: two-column pages get column-aware reading order (`findGutter` + `columnRows` in `markdown.ts`);
+  tables and figures only get a note. Next: tables → table extraction, scans → OCR. Ask before downloading datasets.

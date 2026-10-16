@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parsePageRange } from '../src/convert.js';
-import { pagesToMarkdown, type TextItem } from '../src/markdown.js';
+import { findGutter, pagesToMarkdown, type TextItem } from '../src/markdown.js';
 
 const item = (str: string, x: number, y: number, fontSize = 10): TextItem => ({
   str,
@@ -86,5 +86,48 @@ describe('parsePageRange', () => {
 
   it('rejects garbage', () => {
     expect(() => parsePageRange('abc', 3)).toThrow();
+  });
+});
+
+describe('two-column pages', () => {
+  // Title across both columns, six lines per column side by side, a centred page footer.
+  const columns = (): TextItem[] => [
+    item('A Study of Layout', 200, 800, 16),
+    ...Array.from({ length: 6 }, (_, i) => item(`left line ${i + 1} of the text`, 50, 760 - i * 12)),
+    ...Array.from({ length: 6 }, (_, i) => item(`right line ${i + 1} of the text`, 310, 760 - i * 12)),
+    item('Footer note spanning the whole width of the page', 150, 40),
+  ];
+
+  it('finds the gutter between the columns', () => {
+    const gutter = findGutter(columns());
+    expect(gutter).toBeGreaterThan(50 + 15 * 5);
+    expect(gutter).toBeLessThan(310);
+    expect(findGutter(Array.from({ length: 12 }, (_, i) => item('a full-width single column line of body text here', 50, 700 - i * 12)))).toBeUndefined();
+  });
+
+  it('reads the left column, then the right one, when the classifier says two columns', () => {
+    const { markdown } = pagesToMarkdown([{ number: 1, items: columns(), labels: ['two_columns'] }]);
+    const order = ['A Study of Layout', 'left line 1', 'left line 6', 'right line 1', 'right line 6', 'Footer note'];
+    const positions = order.map((text) => markdown.indexOf(text));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(markdown).not.toContain('two-column page');
+  });
+
+  it('puts the gutter by the aligned right column even when left lines are ragged and split', () => {
+    // Glossary style: bold term and definition are separate items, and left lines end anywhere.
+    const items = Array.from({ length: 8 }, (_, i) => [
+      item(`term${i}.`, 72, 700 - i * 12),
+      item('x'.repeat(10 + ((i * 7) % 30)), 120, 700 - i * 12),
+      item(`right entry ${i} with its definition`, 320, 700 - i * 12),
+    ]).flat();
+    const gutter = findGutter(items)!;
+    expect(gutter).toBeGreaterThan(120 + 39 * 5);
+    expect(gutter).toBeLessThan(320);
+  });
+
+  it('keeps the old row order without the label', () => {
+    const { markdown } = pagesToMarkdown([{ number: 1, items: columns() }]);
+    expect(markdown).toContain('left line 1 of the text right line 1 of the text');
   });
 });

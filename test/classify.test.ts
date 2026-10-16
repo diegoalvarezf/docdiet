@@ -33,6 +33,8 @@ describe('conversion with the classifier', () => {
     expect(pageLabels).toEqual({ 1: ['two_columns'], 2: ['table'], 3: ['figure'] });
     expect(markdown).toContain('<!-- page 2 -->\n<!-- table on this page');
     expect(markdown).toContain('<!-- figure on this page');
+    // The two-column page is put in reading order, so it needs no warning.
+    expect(markdown).not.toContain('two-column page');
   });
 
   it('can be turned off', async () => {
