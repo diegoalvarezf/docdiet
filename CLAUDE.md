@@ -14,6 +14,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 | `src/convert.ts` | Reads the PDF with unpdf, page ranges (`parsePageRange`), calls `pagesToMarkdown` |
 | `src/cache.ts` | `~/.docdiet/cache` (or `$DOCDIET_HOME`), key = realpath + size + mtime + pages + `CONVERTER_VERSION`; writes `.md`, `.json` meta and a `.pdf` symlink to the original |
 | `src/hook.ts` | `handleHookInput` (pure-ish, testable) + `runHook` (stdin/stdout); `planRead` windows Markdown too big for one Read |
+| `src/prompt.ts` | `UserPromptSubmit`: Markdown (inline if short, else its path) for `@`-attached PDFs |
 | `src/install.ts` | Adds/removes our hook in Claude settings without touching others |
 | `src/stats.ts` | Token estimates per Claude Code read mode (`document` / `images`, see `docs/claude-code-internals.md`) and `stats.jsonl` |
 | `src/cli.ts` | `convert`, `install`, `uninstall`, `stats`, `hook` |
@@ -23,7 +24,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 - Paths inside the cache dir are never intercepted — that is how Claude can still open the original pages.
 - Mostly scanned PDFs (≥ half the pages without text) pass through untouched.
 - `updatedInput` replaces the whole tool input: send `file_path` plus `offset`/`limit` (they address Markdown lines). The hook always converts the whole PDF; `pages` becomes the line window of those pages.
-- Read's `validateInput` runs on the original input *before* PreToolUse hooks; `@` attachments never reach hooks.
+- Read's `validateInput` runs on the original input *before* PreToolUse hooks; `@` attachments never reach Read hooks (covered by `UserPromptSubmit`). additionalContext over 10,000 chars is persisted to disk and only previewed.
 - Bump `CONVERTER_VERSION` whenever Markdown output or cached metadata changes.
 - Pin new dependencies to versions published at least two weeks ago.
 - No comments on obvious code — only on non-trivial logic.

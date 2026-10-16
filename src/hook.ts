@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { getOrConvert, isInCache } from './cache.js';
 import { parsePageRange } from './convert.js';
+import { handlePromptSubmit, type PromptInput } from './prompt.js';
 import { estimatePdfTokens, estimateTokens, pdfReadMode, recordStat } from './stats.js';
 
 export interface HookInput {
@@ -165,7 +166,8 @@ export async function runHook(): Promise<void> {
   try {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-    const output = await handleHookInput(JSON.parse(Buffer.concat(chunks).toString('utf8')) as HookInput);
+    const input = JSON.parse(Buffer.concat(chunks).toString('utf8')) as HookInput & PromptInput;
+    const output = input.hook_event_name === 'UserPromptSubmit' ? await handlePromptSubmit(input) : await handleHookInput(input);
     if (output) process.stdout.write(JSON.stringify(output));
   } catch {
     // fall through: exit 0 with no output leaves the Read untouched

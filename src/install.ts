@@ -43,15 +43,21 @@ function isOurs(handler: HookHandler): boolean {
   return handler.type === 'command' && /docdiet/.test(handler.command ?? '') && /\shook$/.test(handler.command ?? '');
 }
 
+// PreToolUse redirects PDF Reads; UserPromptSubmit covers @-attached PDFs, which never reach Read hooks.
+const EVENTS = ['PreToolUse', 'UserPromptSubmit'] as const;
+
 export function withoutHook(settings: Settings): Settings {
-  const groups = settings.hooks?.PreToolUse;
-  if (!groups) return settings;
-  const kept = groups
-    .map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isOurs(h)) }))
-    .filter((g) => g.hooks.length > 0);
+  if (!settings.hooks) return settings;
   const hooks = { ...settings.hooks };
-  if (kept.length > 0) hooks.PreToolUse = kept;
-  else delete hooks.PreToolUse;
+  for (const event of EVENTS) {
+    const groups = hooks[event];
+    if (!groups) continue;
+    const kept = groups
+      .map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isOurs(h)) }))
+      .filter((g) => g.hooks.length > 0);
+    if (kept.length > 0) hooks[event] = kept;
+    else delete hooks[event];
+  }
   const next: Settings = { ...settings, hooks };
   if (Object.keys(hooks).length === 0) delete next.hooks;
   return next;
@@ -61,6 +67,7 @@ export function withHook(settings: Settings, command: string): Settings {
   const clean = withoutHook(settings);
   const hooks = { ...clean.hooks };
   hooks.PreToolUse = [...(hooks.PreToolUse ?? []), { matcher: 'Read', hooks: [{ type: 'command', command, timeout: 120 }] }];
+  hooks.UserPromptSubmit = [...(hooks.UserPromptSubmit ?? []), { hooks: [{ type: 'command', command, timeout: 120 }] }];
   return { ...clean, hooks };
 }
 

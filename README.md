@@ -23,7 +23,9 @@ Token figures are **estimates** (~4 characters per token, ~1,600 tokens per page
 
 1. Claude asks to read `something.pdf`.
 2. The hook converts it (or reuses the cache: `~/.docdiet/cache`, keyed by path, size and modification time) and
-   points the Read at the `.md` file instead. A `pages` range (e.g. `"1-5"`) converts only those pages.
+   points the Read at the `.md` file instead. It always converts the whole PDF: a `pages` range (e.g. `"1-5"`)
+   reads just those pages' lines, and Claude is told the rest of the document is already there.
+   Markdown too large for one Read comes back in a first window with a page → line index.
 3. The Markdown starts with a comment saying where it came from and how to see the original pages,
    in case Claude needs a figure.
 
@@ -31,7 +33,9 @@ It steps aside — Claude reads the PDF as usual — when:
 - half or more of the pages have no text layer (scans): Markdown would lose most of the content;
 - the file is broken, missing, or anything goes wrong. A failed conversion never blocks a read.
 
-Not intercepted: files attached with `@` in a prompt (Claude Code reads those without the Read tool).
+Files attached with `@` in a prompt never go through Read, and Claude Code sends no content for an
+@-attached PDF. A `UserPromptSubmit` hook (also added by `docdiet install`) adds the Markdown to the prompt
+when it is short, or its path otherwise.
 
 ## Usage
 
