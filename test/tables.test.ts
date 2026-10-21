@@ -72,6 +72,15 @@ describe('findTables', () => {
     expect(findTables(list)).toEqual([]);
   });
 
+  it('does not take stacked fractions for a table', () => {
+    const fraction = rows(
+      [item('𝑉1', 150, 700), item('7,2', 250, 700)],
+      [item('𝐼1 =', 100, 690), item('=', 200, 690), item('= 3,25 𝑚𝐴', 300, 690)],
+      [item('𝑅𝑒𝑞1', 150, 680), item('2222,22', 250, 680)],
+    );
+    expect(findTables(fraction)).toEqual([]);
+  });
+
   it('ignores plain paragraphs', () => {
     const text = rows(
       [item('A paragraph of text with normal word spacing only.', 50, 700)],

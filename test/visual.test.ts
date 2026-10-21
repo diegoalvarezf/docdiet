@@ -21,7 +21,5 @@ describe('pages that are mostly an image', () => {
   it('leaves a PDF that is mostly images to Claude', async () => {
     writeFileSync(file, await slidesPdf());
     expect(await handleHookInput({ tool_name: 'Read', tool_input: { file_path: file } })).toBeNull();
-    // Asking only for the text slide still gets the Markdown.
-    expect(await handleHookInput({ tool_name: 'Read', tool_input: { file_path: file, pages: '3' } })).not.toBeNull();
   });
 });

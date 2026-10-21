@@ -41,7 +41,8 @@ describe('conversion with the classifier', () => {
     writeFileSync(file, await layoutPdf());
     process.env.DOCDIET_CLASSIFY = '0';
     const { markdown, pageLabels } = await convertPdf(file);
-    expect(pageLabels).toEqual({});
-    expect(markdown).not.toContain('on this page');
+    // Only the figure found by ink outside the text is left.
+    expect(pageLabels).toEqual({ 3: ['figure'] });
+    expect(markdown).not.toContain('table on this page');
   });
 });

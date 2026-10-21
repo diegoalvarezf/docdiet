@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getOrConvert } from '../src/cache.js';
 import { handleHookInput, planRead } from '../src/hook.js';
 import { estimatePdfTokens, pageImageTokens, pdfReadMode, readStats } from '../src/stats.js';
-import { samplePdf, scannedPdf } from './fixtures.js';
+import { chaptersPdf, samplePdf, scannedPdf } from './fixtures.js';
 
 let dir: string;
 let sample: string;
@@ -58,19 +58,25 @@ describe('handleHookInput', () => {
     expect(Object.keys(output!.hookSpecificOutput.updatedInput)).toEqual(['file_path']);
   });
 
-  it('serves requested pages as a window of the whole Markdown', async () => {
-    const output = await handleHookInput({ tool_name: 'Read', tool_input: { file_path: sample, pages: '2' } });
-    const { file_path, offset, limit } = output!.hookSpecificOutput.updatedInput;
-    const window = readFileSync(file_path, 'utf8').split('\n').slice(offset! - 1, offset! - 1 + limit!).join('\n');
-    expect(window).toContain('Next Steps');
-    expect(window).not.toContain('Annual Report');
-    expect(output?.hookSpecificOutput.additionalContext).toContain('Markdown of the whole PDF (3 pages');
-    expect((await readStats()).at(-1)).toMatchObject({ pages: 1, readMode: 'images' });
+  it('passes a targeted read of a few pages to Claude', async () => {
+    expect(await handleHookInput({ tool_name: 'Read', tool_input: { file_path: sample, pages: '2' } })).toBeNull();
+    expect(await handleHookInput({ tool_name: 'Read', tool_input: { file_path: sample, pages: '1-3' } })).toBeNull();
   });
 
-  it('leaves mostly scanned page ranges to Claude', async () => {
-    expect(await handleHookInput({ tool_name: 'Read', tool_input: { file_path: sample, pages: '3' } })).toBeNull();
+  it('serves wider page ranges as a window of the whole Markdown', async () => {
+    const book = join(dir, 'book.pdf');
+    writeFileSync(book, await chaptersPdf(6));
+    const output = await handleHookInput({ tool_name: 'Read', tool_input: { file_path: book, pages: '2-5' } });
+    const { file_path, offset, limit } = output!.hookSpecificOutput.updatedInput;
+    const window = readFileSync(file_path, 'utf8').split('\n').slice(offset! - 1, offset! - 1 + limit!).join('\n');
+    expect(window).toContain('Chapter 2');
+    expect(window).toContain('Chapter 5');
+    expect(window).not.toContain('Chapter 1\n');
+    expect(window).not.toContain('Chapter 6');
+    expect(output?.hookSpecificOutput.additionalContext).toContain('Markdown of the whole PDF (6 pages');
+    expect((await readStats()).at(-1)).toMatchObject({ pages: 4, readMode: 'images' });
   });
+
 
   it('leaves mostly scanned PDFs to Claude', async () => {
     expect(await handleHookInput({ tool_name: 'Read', tool_input: { file_path: scanned } })).toBeNull();

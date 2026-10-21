@@ -36,8 +36,8 @@ interface Line {
   x: number;
   y: number;
   size: number;
-  // Already-rendered Markdown table standing in for several rows.
-  table?: boolean;
+  // Already-rendered Markdown (a table or a laid-out formula) standing in for several rows.
+  raw?: boolean;
 }
 
 const BULLET = /^([•◦▪‣∙·●○■□–-]|\*|\d{1,3}[.)]|[a-z][.)])\s+/;
@@ -48,11 +48,32 @@ function groupRows(items: TextItem[]): TextItem[][] {
   const rows: TextItem[][] = [];
   for (const item of sorted) {
     const row = rows[rows.length - 1];
-    const tolerance = Math.max(item.fontSize, 1) * 0.5;
-    if (row && Math.abs(row[0].y - item.y) <= tolerance) row.push(item);
+    // Compare with the row's main text, not its first item: a superscript sorts first.
+    const main = row?.reduce((a, b) => (b.fontSize > a.fontSize ? b : a));
+    const tolerance = Math.max(item.fontSize, main?.fontSize ?? 0, 1) * 0.5;
+    if (row && main && Math.abs(main.y - item.y) <= tolerance) row.push(item);
     else rows.push([item]);
   }
   return rows;
+}
+
+// Sub- and superscripts (R_eq1, e^x, 10^-27) are smaller items off the row's baseline; written
+// inline they read as separate words ("R eq1", "e x" = e·x), so they get a _ or ^ marker.
+function scriptMarker(item: TextItem, row: TextItem[]): string {
+  const main = Math.max(...row.map((i) => i.fontSize));
+  if (item.fontSize > main * 0.85) return '';
+  const base = row.filter((i) => i.fontSize >= main * 0.9).map((i) => i.y);
+  const dy = item.y - base.reduce((a, b) => a + b, 0) / Math.max(1, base.length);
+  if (dy > main * 0.15) return '^';
+  if (dy < -main * 0.1) return '_';
+  return '';
+}
+
+function scripted(item: TextItem, row: TextItem[]): { text: string; attached: boolean } {
+  const text = item.str.trim();
+  const marker = text ? scriptMarker(item, row) : '';
+  if (!marker) return { text: item.str, attached: false };
+  return { text: `${marker}${[...text].length > 1 ? `{${text}}` : text}`, attached: true };
 }
 
 function rowToLine(row: TextItem[]): Line | undefined {
@@ -62,10 +83,11 @@ function rowToLine(row: TextItem[]): Line | undefined {
   let sizeWeight = 0;
   let sizeSum = 0;
   for (const item of row) {
+    const piece = scripted(item, row);
     // pdf.js splits words into separate items; a visible gap means a space
     const gap = item.x - end;
-    if (text && gap > item.fontSize * 0.15 && !/\s$/.test(text) && !/^\s/.test(item.str)) text += ' ';
-    text += item.str;
+    if (text && !piece.attached && gap > item.fontSize * 0.15 && !/\s$/.test(text) && !/^\s/.test(piece.text)) text += ' ';
+    text += piece.text;
     end = item.x + item.width;
     const chars = item.str.trim().length;
     sizeSum += item.fontSize * chars;
@@ -74,6 +96,50 @@ function rowToLine(row: TextItem[]): Line | undefined {
   text = text.replace(/\s+/g, ' ').trim();
   if (!text) return undefined;
   return { text, x: row[0].x, y: row[0].y, size: sizeWeight ? sizeSum / sizeWeight : row[0].fontSize };
+}
+
+const MATH_LETTER = /[\u{1D400}-\u{1D7FF}]/u;
+
+// A formula set in 2D (stacked fractions) is a few rows closer together than lines of text, at
+// least one with math letters. Returns [first, last] row index pairs.
+function formulaRuns(rows: TextItem[][]): [number, number][] {
+  const size = (row: TextItem[]) => Math.max(...row.map((i) => i.fontSize), 1);
+  const baseline = (row: TextItem[]) => row.reduce((a, b) => (b.fontSize > a.fontSize ? b : a)).y;
+  const runs: [number, number][] = [];
+  let start = 0;
+  for (let i = 1; i <= rows.length; i++) {
+    const tight = i < rows.length && baseline(rows[i - 1]) - baseline(rows[i]) < Math.max(size(rows[i - 1]), size(rows[i])) * 0.95;
+    if (tight) continue;
+    const run = rows.slice(start, i);
+    if (run.length >= 2 && run.some((row) => row.some((item) => MATH_LETTER.test(item.str)))) runs.push([start, i - 1]);
+    start = i;
+  }
+  return runs;
+}
+
+// Lays the rows out in a code block, each item at its own column, so numerators stay above
+// denominators the way pdftotext -layout keeps them.
+function layoutBlock(rows: TextItem[][]): string {
+  const items = rows.flat().filter((i) => i.str.trim());
+  const left = Math.min(...items.map((i) => i.x));
+  const sizes = items.map((i) => i.fontSize).sort((a, b) => a - b);
+  const charWidth = sizes[Math.floor(sizes.length / 2)] * 0.5;
+  const lines = rows.map((row) => {
+    const chars: string[] = [];
+    for (const item of [...row].filter((i) => i.str.trim()).sort((a, b) => a.x - b.x)) {
+      const piece = scripted(item, row);
+      const text = [...piece.text.trim()];
+      // Scripts stick to what they belong to; other pieces go to their column, never overlapping
+      // what is already written and keeping one space between pieces.
+      const col = piece.attached
+        ? chars.length
+        : Math.max(Math.round((item.x - left) / charWidth), chars.length === 0 ? 0 : chars.length + 1);
+      while (chars.length < col) chars.push(' ');
+      chars.push(...text);
+    }
+    return chars.join('').trimEnd();
+  });
+  return ['```', ...lines, '```'].join('\n');
 }
 
 // The gutter is the x in the middle band of the page that the fewest text items cover.
@@ -153,14 +219,22 @@ interface BuiltPage {
 function buildLines(items: TextItem[], twoColumns = false, hasTable = false): BuiltPage {
   const gutter = twoColumns ? findGutter(items) : undefined;
   const rows = gutter === undefined ? groupRows(items) : columnRows(items, gutter);
-  const tables = hasTable ? findTables(rows) : [];
+  const formulas = formulaRuns(rows);
+  const inFormula = (first: number, last: number) => formulas.some(([a, b]) => first <= b && last >= a);
+  const tables = hasTable ? findTables(rows).filter((t) => !inFormula(t.first, t.last)) : [];
   const lines: Line[] = [];
   for (let i = 0; i < rows.length; i++) {
+    const first = rows[i][0];
     const table = tables.find((t) => t.first === i);
     if (table) {
-      const first = rows[i][0];
-      lines.push({ text: tableToMarkdown(table.cells), x: first.x, y: first.y, size: first.fontSize, table: true });
+      lines.push({ text: tableToMarkdown(table.cells), x: first.x, y: first.y, size: first.fontSize, raw: true });
       i = table.last;
+      continue;
+    }
+    const formula = formulas.find(([a]) => a === i);
+    if (formula) {
+      lines.push({ text: layoutBlock(rows.slice(formula[0], formula[1] + 1)), x: first.x, y: first.y, size: first.fontSize, raw: true });
+      i = formula[1];
       continue;
     }
     const line = rowToLine(rows[i]);
@@ -281,7 +355,8 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
 
     const kept = pageLines.filter((line, i) => {
       if (PAGE_NUMBER.test(line.text) && isEdge(line, i, pageLines)) return false;
-      return !(isEdge(line, i, pageLines) && repeated.has(normalizeEdge(line.text)));
+      // Headings are never running headers, even when their number matches the page ("Chapter 2").
+      return !(isEdge(line, i, pageLines) && repeated.has(normalizeEdge(line.text)) && !isHeading(line, body));
     });
 
     let paragraph = '';
@@ -292,7 +367,7 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
     };
 
     for (const line of kept) {
-      if (line.table) {
+      if (line.raw) {
         flush();
         out.push(line.text, '');
         prev = undefined;

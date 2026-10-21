@@ -101,6 +101,14 @@ describe('running headers', () => {
     expect(markdown).toContain('Ejercicio 7');
   });
 
+  it('keeps headings even when their number matches the page', () => {
+    const pages = [1, 2, 3, 4].map((n) => ({
+      number: n,
+      items: [item(`Chapter ${n}`, 50, 800, 20), item(`Body text of page ${n} that is long enough to be body.`, 50, 700)],
+    }));
+    expect(pagesToMarkdown(pages).markdown).toContain('# Chapter 3');
+  });
+
   it('still drops headers whose number follows the page', () => {
     const { markdown } = pagesToMarkdown([1, 2, 3, 4].map((n) => page(n, `Seite ${n + 13} von 24`)));
     expect(markdown).not.toContain('Seite');
@@ -147,5 +155,48 @@ describe('two-column pages', () => {
   it('keeps the old row order without the label', () => {
     const { markdown } = pagesToMarkdown([{ number: 1, items: columns() }]);
     expect(markdown).toContain('left line 1 of the text right line 1 of the text');
+  });
+});
+
+describe('formulas', () => {
+  it('marks sub- and superscripts', () => {
+    const { markdown } = pagesToMarkdown([
+      {
+        number: 1,
+        items: [
+          item('𝑅', 50, 700, 11),
+          { str: '𝑒𝑞', x: 57, y: 697.7, width: 10, fontSize: 8 },
+          item('= 𝑒', 70, 700, 11),
+          { str: '𝑥', x: 92, y: 704, width: 4, fontSize: 8 },
+          item('body text long enough to be the body size of this page here', 50, 650, 11),
+        ],
+      },
+    ]);
+    expect(markdown).toContain('𝑅_{𝑒𝑞} = 𝑒^𝑥');
+  });
+
+  it('keeps stacked fractions in a laid-out block instead of a table or a run-on line', () => {
+    const { markdown } = pagesToMarkdown([
+      {
+        number: 1,
+        labels: ['table'],
+        items: [
+          item('Some text before the formula that is long enough to be body text.', 50, 760, 11),
+          item('𝑉', 110, 717.8, 11),
+          item('7,2', 160, 717.8, 11),
+          item('𝐼 =', 80, 709.4, 11),
+          item('=', 140, 709.4, 11),
+          item('= 3,25 𝑚𝐴', 200, 709.4, 11),
+          item('𝑅', 105, 701.9, 11),
+          item('2222,22', 150, 701.9, 11),
+          item('Some text after the formula that is long enough to be body text.', 50, 670, 11),
+        ],
+      },
+    ]);
+    const block = markdown.slice(markdown.indexOf('```'), markdown.lastIndexOf('```') + 3).split('\n');
+    expect(block[1].trim()).toMatch(/^𝑉\s+7,2$/);
+    expect(block[2]).toMatch(/^𝐼 =\s+=\s+= 3,25 𝑚𝐴$/);
+    expect(block[3].trim()).toMatch(/^𝑅\s+2222,22$/);
+    expect(markdown).not.toContain('| --- |');
   });
 });

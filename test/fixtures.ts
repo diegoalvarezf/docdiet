@@ -118,3 +118,16 @@ export async function slidesPdf(): Promise<Uint8Array> {
   for (let y = 420; y > 60; y -= 22) text.drawText(line, { x: 50, y, size: 14, font: body });
   return doc.save();
 }
+
+// Plain text pages titled "Chapter N".
+export async function chaptersPdf(pages: number): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  for (let n = 1; n <= pages; n++) {
+    const page = doc.addPage([595, 842]);
+    page.drawText(`Chapter ${n}`, { x: 50, y: 780, size: 22, font: bold });
+    for (let y = 740; y > 100; y -= 15) page.drawText(`Line of chapter ${n} with enough words to read as body text.`, { x: 50, y, size: 11, font });
+  }
+  return doc.save();
+}

@@ -96,6 +96,18 @@ function place(row: Cell[], cols: { x0: number; x1: number }[]): string[] {
   return out;
 }
 
+// Stacked fractions also split into "cells": math letters (𝑉, 𝐼, 𝑅) or bare operators in many cells
+// mean a formula, not a table.
+const MATH_LETTER = /[\u{1D400}-\u{1D7FF}]/u;
+const OPERATOR_CELL = /^[=+\-−·×÷/<>≤≥≈]+$|^=|=$/;
+const MAX_FORMULA_CELLS = 0.3;
+
+function looksLikeFormula(rows: string[][]): boolean {
+  const cells = rows.flat().filter(Boolean);
+  const formulas = cells.filter((c) => MATH_LETTER.test(c) || OPERATOR_CELL.test(c));
+  return formulas.length >= cells.length * MAX_FORMULA_CELLS;
+}
+
 // A list with a wide indent also splits into a marker column and a text column.
 const LIST_MARKER = /^([•◦▪‣∙·●○■□–*v-]|\d{1,3}[.)]|[a-z][.)]|\(\w{1,3}\))$/;
 
@@ -116,7 +128,7 @@ function toTable(rows: Cell[][]): string[][] | undefined {
       table.push(cells);
     }
   }
-  return table.length >= 2 ? table : undefined;
+  return table.length >= 2 && !looksLikeFormula(table) ? table : undefined;
 }
 
 export function findTables(rows: TextItem[][]): Table[] {

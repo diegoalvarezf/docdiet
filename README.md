@@ -32,6 +32,7 @@ values; see `docs/claude-code-internals.md`.
    in case Claude needs a figure.
 
 It steps aside — Claude reads the PDF as usual — when:
+- Claude asks for 3 pages or fewer (`pages: "24"`): a targeted read is usually after a figure or a formula;
 - half or more of the pages have no text layer even after OCR (see below), or are mostly an image with a few words
   (handwriting, diagrams, screenshots in slides): Markdown would lose most of the content;
 - the file is broken, missing, or anything goes wrong. A failed conversion never blocks a read.

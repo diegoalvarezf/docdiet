@@ -103,6 +103,16 @@ export function planRead(
   return { offset: first > 1 ? first : undefined, limit, context: parts.filter(Boolean).join(' ') };
 }
 
+const MAX_TARGETED_PAGES = 3;
+
+function isTargeted(pageSpec: string | undefined): boolean {
+  const match = /^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$/.exec(pageSpec ?? '');
+  if (!match) return false;
+  const first = Number(match[1]);
+  const last = match[2] === undefined ? first : Number(match[2]);
+  return last - first + 1 <= MAX_TARGETED_PAGES;
+}
+
 // Returns null to let Claude read the file untouched. Any failure must fall through:
 // a broken conversion should never stop Claude from reading a document.
 export async function handleHookInput(input: HookInput): Promise<HookOutput | null> {
@@ -110,6 +120,10 @@ export async function handleHookInput(input: HookInput): Promise<HookOutput | nu
   if (input.tool_name !== 'Read' || !filePath || !/\.pdf$/i.test(filePath)) return null;
   const path = isAbsolute(filePath) ? filePath : resolve(input.cwd ?? process.cwd(), filePath);
   if (isInCache(path) || !existsSync(path)) return null;
+
+  // A read of a few given pages is usually there to see a figure or a formula, and saves little:
+  // let Claude get the page images.
+  if (isTargeted(input.tool_input?.pages)) return null;
 
   try {
     // Always the whole PDF: one cache entry serves every page range, and Claude can be told

@@ -3,7 +3,7 @@ import { extractTextItems, getDocumentProxy } from 'unpdf';
 import { labelsOf, pageProbabilities, type PageLabel } from './classify.js';
 import { pagesToMarkdown, type PageInput } from './markdown.js';
 import { ocrPages } from './ocr.js';
-import { visualPages } from './visual.js';
+import { pageInk } from './visual.js';
 
 export interface Conversion {
   markdown: string;
@@ -54,14 +54,18 @@ export async function convertPdf(path: string, pageSpec?: string, options: Conve
     // Only the real text layer counts here: it is what the API extracts from a PDF document block.
     const rawTextChars = convertedPages.reduce((sum, n) => sum + (items[n - 1] ?? []).reduce((s, i) => s + i.str.length, 0), 0);
     const ocr = await ocrPages(pdf, convertedPages.filter((n) => !hasText(n)), options.ocrBudgetMs);
-    const visual = await visualPages(pdf, convertedPages.filter(hasText), items);
+    const ink = await pageInk(pdf, convertedPages.filter(hasText), items);
     const pageLabels = await classify(pdf, convertedPages.filter((n) => hasText(n) || ocr.has(n)));
+    // The classifier can call a figure page a table; a picture found by ink always gets its note.
+    for (const page of ink.figures) {
+      if (!pageLabels[page]?.includes('figure')) pageLabels[page] = [...(pageLabels[page] ?? []), 'figure'];
+    }
     const pages: PageInput[] = convertedPages.map((number) => ({
       number,
       items: ocr.get(number)?.items ?? items[number - 1] ?? [],
       labels: pageLabels[number],
       ocrConfidence: ocr.get(number)?.confidence,
-      visual: visual.has(number),
+      visual: ink.visual.has(number),
     }));
     const pageSizes = await Promise.all(
       convertedPages.map(async (number) => {
@@ -79,7 +83,7 @@ export async function convertPdf(path: string, pageSpec?: string, options: Conve
       pageSizes,
       pageLabels,
       ocrPages: [...ocr.keys()].sort((a, b) => a - b),
-      visualPages: [...visual].sort((a, b) => a - b),
+      visualPages: [...ink.visual].sort((a, b) => a - b),
     };
   } finally {
     await pdf.loadingTask.destroy();
