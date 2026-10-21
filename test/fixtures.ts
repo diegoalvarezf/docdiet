@@ -100,3 +100,21 @@ export async function scannedTextPdf(): Promise<Uint8Array> {
   doc.addPage([595, 842]).drawImage(image, { x: 0, y: 0, width: 595, height: 842 });
   return doc.save();
 }
+
+// Slides whose content is a diagram: a short title and big filled boxes, plus one plain text slide.
+export async function slidesPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const body = await doc.embedFont(StandardFonts.Helvetica);
+  for (const title of ['El flujo de trabajo', 'Ramas']) {
+    const page = doc.addPage([842, 474]);
+    page.drawText(title, { x: 50, y: 410, size: 28, font });
+    [0, 1, 2].forEach((i) => {
+      page.drawRectangle({ x: 50 + i * 260, y: 180, width: 200, height: 90, color: rgb(0.6 + i * 0.1, 0.8, 0.95 - i * 0.2), borderWidth: 2 });
+    });
+  }
+  const text = doc.addPage([842, 474]);
+  const line = 'Git keeps the history of a project as a chain of commits that record every change.';
+  for (let y = 420; y > 60; y -= 22) text.drawText(line, { x: 50, y, size: 14, font: body });
+  return doc.save();
+}

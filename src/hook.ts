@@ -117,8 +117,10 @@ export async function handleHookInput(input: HookInput): Promise<HookOutput | nu
     const { markdownPath, conversion, cached } = await getOrConvert(path, undefined, { ocrBudgetMs: HOOK_OCR_BUDGET_MS });
     const { offset, limit, pages: pageSpec } = input.tool_input ?? {};
     const requested = parsePageRange(pageSpec, conversion.totalPages);
-    const textless = requested.filter((p) => conversion.textlessPages.includes(p));
-    // Mostly scanned: Markdown would lose most of the content, the original is better.
+    // Pages whose content is an image (scans OCR could not read, handwriting, diagrams) are lost in Markdown.
+    const imageOnly = new Set([...conversion.textlessPages, ...conversion.visualPages]);
+    const textless = requested.filter((p) => imageOnly.has(p));
+    // Mostly images: Markdown would lose most of the content, the original is better.
     if (requested.length === 0 || textless.length * 2 >= requested.length) return null;
 
     // offset/limit address Markdown lines: Claude uses them to page through a long conversion.

@@ -37,7 +37,7 @@ describe('handlePromptSubmit', () => {
 
   it('points scanned PDFs at the original pages', async () => {
     const output = await handlePromptSubmit({ prompt: 'Mira @"my scan.pdf"', cwd: dir });
-    expect(output!.hookSpecificOutput.additionalContext).toMatch(/mostly scanned.*\.pdf with pages/);
+    expect(output!.hookSpecificOutput.additionalContext).toMatch(/mostly images.*\.pdf with pages/);
   });
 
   it('stays silent without PDF mentions or with missing files', async () => {

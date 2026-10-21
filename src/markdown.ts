@@ -15,6 +15,8 @@ export interface PageInput {
   labels?: string[];
   // Set when the items came from OCR of a scanned page (mean word confidence, 0-100).
   ocrConfidence?: number;
+  // Mostly an image (handwriting, diagram, screenshot): the few words here are not its content.
+  visual?: boolean;
 }
 
 const LABEL_NOTES: Record<string, string> = {
@@ -199,14 +201,29 @@ function edgeTest(pages: Line[][]): EdgeTest {
 
 // Running headers/footers and page numbers repeat on most pages and only waste tokens.
 function repeatedEdgeLines(pages: Line[][], isEdge: EdgeTest): Set<string> {
-  const counts = new Map<string, number>();
-  const withText = pages.filter((p) => p.length > 0);
-  for (const lines of withText) {
-    const edges = new Set(lines.filter(isEdge).map((l) => normalizeEdge(l.text)));
-    for (const key of edges) counts.set(key, (counts.get(key) ?? 0) + 1);
+  const seen = new Map<string, { page: number; text: string }[]>();
+  let withText = 0;
+  pages.forEach((lines, page) => {
+    if (lines.length === 0) return;
+    withText++;
+    const edges = new Map(lines.filter(isEdge).map((l) => [normalizeEdge(l.text), l.text]));
+    for (const [key, text] of edges) seen.set(key, [...(seen.get(key) ?? []), { page, text }]);
+  });
+  const minPages = Math.max(2, Math.ceil(withText * 0.5));
+  return new Set([...seen].filter(([, hits]) => hits.length >= minPages && isRunning(hits)).map(([key]) => key));
+}
+
+// Repeated text with numbers is a running header only when it is identical everywhere or one of its
+// numbers follows the page ("Seite 14 von 24"); "Ejercicio 1", "Ejercicio 2"... are section titles.
+function isRunning(hits: { page: number; text: string }[]): boolean {
+  if (hits.every((h) => h.text === hits[0].text)) return true;
+  const numbers = hits.map((h) => (h.text.match(/\d+/g) ?? []).map(Number));
+  const slots = Math.min(...numbers.map((n) => n.length));
+  for (let k = 0; k < slots; k++) {
+    const offset = numbers[0][k] - hits[0].page;
+    if (numbers.every((n, i) => n[k] - hits[i].page === offset)) return true;
   }
-  const minPages = Math.max(2, Math.ceil(withText.length * 0.5));
-  return new Set([...counts].filter(([, n]) => n >= minPages).map(([key]) => key));
+  return false;
 }
 
 function normalizeEdge(text: string): string {
@@ -244,6 +261,9 @@ export function pagesToMarkdown(pages: PageInput[]): MarkdownResult {
   pages.forEach((page, index) => {
     const pageLines = lines[index];
     out.push(`<!-- page ${page.number} -->`);
+    if (page.visual) {
+      out.push('<!-- page mostly an image (diagram, photo, screenshot or handwriting): its content is not in this Markdown, see the original page -->');
+    }
     if (page.ocrConfidence !== undefined) {
       out.push(`<!-- scanned page, text from OCR (confidence ${Math.round(page.ocrConfidence)}%): check the original page if exact wording matters -->`);
     }

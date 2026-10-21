@@ -14,6 +14,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 | `src/classify.ts` | Page classifier: renders pages to 224×320 gray (pdf.js + `@napi-rs/canvas`), runs `models/page-classifier.onnx` |
 | `src/tables.ts` | Pure: rebuilds Markdown tables from text positions (cells by wide gaps, columns from the fullest rows, wrapped cells joined) on pages labelled table |
 | `src/ocr.ts` | Optional OCR of textless pages with the system `tesseract` (TSV words → positioned items, confidence ≥ 70%, parallel, time budget in hooks) |
+| `src/visual.ts` | Pages that are mostly an image (handwriting, diagrams, screenshots): ink outside text boxes ≥ 2% on a 200 px render and < 40 words |
 | `src/convert.ts` | Reads the PDF with unpdf, page ranges (`parsePageRange`), calls `pagesToMarkdown` |
 | `src/cache.ts` | `~/.docdiet/cache` (or `$DOCDIET_HOME`), key = realpath + size + mtime + pages + `CONVERTER_VERSION`; writes `.md`, `.json` meta and a `.pdf` symlink to the original |
 | `src/hook.ts` | `handleHookInput` (pure-ish, testable) + `runHook` (stdin/stdout); `planRead` windows Markdown too big for one Read |
@@ -25,7 +26,8 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 ## Rules
 - The hook must never block or break a Read: any error → exit 0 with no output (Claude reads the original).
 - Paths inside the cache dir are never intercepted — that is how Claude can still open the original pages.
-- Mostly scanned PDFs (≥ half the pages still without text after OCR) pass through untouched.
+- Mostly image PDFs (≥ half the pages without text after OCR, or mostly an image per `visual.ts`) pass through untouched.
+- Repeated top/bottom lines are dropped only if identical on every page or their number follows the page (keeps "Ejercicio N").
 - `updatedInput` replaces the whole tool input: send `file_path` plus `offset`/`limit` (they address Markdown lines). The hook always converts the whole PDF; `pages` becomes the line window of those pages.
 - Read's `validateInput` runs on the original input *before* PreToolUse hooks; `@` attachments never reach Read hooks (covered by `UserPromptSubmit`). additionalContext over 10,000 chars is persisted to disk and only previewed.
 - Bump `CONVERTER_VERSION` whenever Markdown output or cached metadata changes.

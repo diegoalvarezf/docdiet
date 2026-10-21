@@ -3,6 +3,7 @@ import { extractTextItems, getDocumentProxy } from 'unpdf';
 import { labelsOf, pageProbabilities, type PageLabel } from './classify.js';
 import { pagesToMarkdown, type PageInput } from './markdown.js';
 import { ocrPages } from './ocr.js';
+import { visualPages } from './visual.js';
 
 export interface Conversion {
   markdown: string;
@@ -15,6 +16,8 @@ export interface Conversion {
   pageLabels: Record<number, PageLabel[]>;
   // Pages without a text layer whose text came from OCR.
   ocrPages: number[];
+  // Pages with a few words but mostly an image (handwriting, diagrams): their Markdown misses the content.
+  visualPages: number[];
 }
 
 export interface ConvertOptions {
@@ -51,12 +54,14 @@ export async function convertPdf(path: string, pageSpec?: string, options: Conve
     // Only the real text layer counts here: it is what the API extracts from a PDF document block.
     const rawTextChars = convertedPages.reduce((sum, n) => sum + (items[n - 1] ?? []).reduce((s, i) => s + i.str.length, 0), 0);
     const ocr = await ocrPages(pdf, convertedPages.filter((n) => !hasText(n)), options.ocrBudgetMs);
+    const visual = await visualPages(pdf, convertedPages.filter(hasText), items);
     const pageLabels = await classify(pdf, convertedPages.filter((n) => hasText(n) || ocr.has(n)));
     const pages: PageInput[] = convertedPages.map((number) => ({
       number,
       items: ocr.get(number)?.items ?? items[number - 1] ?? [],
       labels: pageLabels[number],
       ocrConfidence: ocr.get(number)?.confidence,
+      visual: visual.has(number),
     }));
     const pageSizes = await Promise.all(
       convertedPages.map(async (number) => {
@@ -74,6 +79,7 @@ export async function convertPdf(path: string, pageSpec?: string, options: Conve
       pageSizes,
       pageLabels,
       ocrPages: [...ocr.keys()].sort((a, b) => a - b),
+      visualPages: [...visual].sort((a, b) => a - b),
     };
   } finally {
     await pdf.loadingTask.destroy();

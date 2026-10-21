@@ -89,6 +89,24 @@ describe('parsePageRange', () => {
   });
 });
 
+describe('running headers', () => {
+  const page = (number: number, top: string) => ({
+    number,
+    items: [item(top, 50, 800), item(`Body text of page ${number} that is long enough to be body.`, 50, 700), item(`${number}`, 290, 40)],
+  });
+
+  it('keeps numbered section titles that repeat at the top of pages', () => {
+    const { markdown } = pagesToMarkdown([1, 2, 3, 4].map((n) => page(n, `Ejercicio ${n * 2 - 1}`)));
+    expect(markdown).toContain('Ejercicio 3');
+    expect(markdown).toContain('Ejercicio 7');
+  });
+
+  it('still drops headers whose number follows the page', () => {
+    const { markdown } = pagesToMarkdown([1, 2, 3, 4].map((n) => page(n, `Seite ${n + 13} von 24`)));
+    expect(markdown).not.toContain('Seite');
+  });
+});
+
 describe('two-column pages', () => {
   // Title across both columns, six lines per column side by side, a centred page footer.
   const columns = (): TextItem[] => [

@@ -32,7 +32,8 @@ values; see `docs/claude-code-internals.md`.
    in case Claude needs a figure.
 
 It steps aside — Claude reads the PDF as usual — when:
-- half or more of the pages have no text layer even after OCR (see below): Markdown would lose most of the content;
+- half or more of the pages have no text layer even after OCR (see below), or are mostly an image with a few words
+  (handwriting, diagrams, screenshots in slides): Markdown would lose most of the content;
 - the file is broken, missing, or anything goes wrong. A failed conversion never blocks a read.
 
 Files attached with `@` in a prompt never go through Read, and Claude Code sends no content for an

@@ -48,9 +48,9 @@ export async function handlePromptSubmit(input: PromptInput): Promise<PromptOutp
     if (isInCache(path) || !existsSync(path)) continue;
     try {
       const { markdownPath, originalLink, conversion } = await getOrConvert(path, undefined, { ocrBudgetMs: HOOK_OCR_BUDGET_MS });
-      const { totalPages, textlessPages, markdown } = conversion;
-      if (textlessPages.length * 2 >= totalPages) {
-        notes.push({ pointer: `@${mention} is mostly scanned pages: Read ${originalLink} with pages to see them.` });
+      const { totalPages, textlessPages, visualPages, markdown } = conversion;
+      if ((textlessPages.length + visualPages.length) * 2 >= totalPages) {
+        notes.push({ pointer: `@${mention} is mostly images (scans, handwriting or diagrams): Read ${originalLink} with pages to see them.` });
         continue;
       }
       const size = `${totalPages} pages, ${markdown.split('\n').length} lines, ~${estimateTokens(markdown)} tokens`;
