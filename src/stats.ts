@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import { docdietHome } from './cache.js';
 import type { Conversion, PageSize } from './convert.js';
 
-// Measured on Claude Sonnet 5.5 through Claude Code (docs/claude-code-internals.md): 2.3-3 characters
+// Measured on Claude Sonnet 5.5 through Claude Code: 2.3-3 characters
 // per token (English prose near 3, German and tables lower), and Read's line-number prefix adds ~2
 // tokens per line.
 const CHARS_PER_TOKEN = 3;
 const READ_LINE_TOKENS = 2;
 
-// How Claude Code 2.1.201 sends a PDF read without docdiet (docs/claude-code-internals.md):
+// How Claude Code 2.1.201 sends a PDF read without docdiet (observed):
 // - 'document': the whole file as one document block (no `pages`, at most 10 pages);
 //   the API turns every page into extracted text plus a page image.
 // - 'images': with `pages`, or past 10 pages (Read refuses the whole file, so Claude pages

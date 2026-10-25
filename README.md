@@ -17,7 +17,7 @@ $ docdiet convert report.pdf -o report.md
 
 Token figures are **estimates**, calibrated against real Claude Code reads (Sonnet 5.5): ~3 characters per token,
 page images priced the way Claude Code sends the PDF (whole document or 100 DPI JPEGs). Within ~15% of measured
-values; see `docs/claude-code-internals.md`.
+values.
 
 ## How it works
 

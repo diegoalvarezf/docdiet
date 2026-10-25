@@ -20,7 +20,7 @@ Claude Code `PreToolUse` hook on `Read`: converts PDFs to compact Markdown (cach
 | `src/hook.ts` | `handleHookInput` (pure-ish, testable) + `runHook` (stdin/stdout); `planRead` windows Markdown too big for one Read |
 | `src/prompt.ts` | `UserPromptSubmit`: Markdown (inline if short, else its path) for `@`-attached PDFs |
 | `src/install.ts` | Adds/removes our hook in Claude settings without touching others |
-| `src/stats.ts` | Token estimates per Claude Code read mode (`document` / `images`, see `docs/claude-code-internals.md`) and `stats.jsonl` |
+| `src/stats.ts` | Token estimates per Claude Code read mode (`document` / `images`) and `stats.jsonl` |
 | `src/cli.ts` | `convert`, `install`, `uninstall`, `stats`, `hook` |
 
 ## Rules
